@@ -19,13 +19,15 @@ jobs:
       - name: Show toolchain
         run: xcodebuild -version
 
+      # -derivedDataPath would require -scheme, and this project has no shared scheme.
+      # CONFIGURATION_BUILD_DIR puts the product where we want it using -target instead.
       - name: Build (Release)
         run: |
           xcodebuild \
             -project echo/echo.xcodeproj \
             -target echo \
             -configuration Release \
-            -derivedDataPath build \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/build" \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -33,7 +35,7 @@ jobs:
 
       - name: Zip the app
         run: |
-          cd "build/Build/Products/Release"
+          cd build
           ditto -c -k --sequesterRsrc --keepParent \
             "The Yappologist.app" "The Yappologist.zip"
 
@@ -41,5 +43,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: The-Yappologist
-          path: build/Build/Products/Release/The Yappologist.zip
+          path: build/The Yappologist.zip
           if-no-files-found: error
