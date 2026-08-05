@@ -1,0 +1,302 @@
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject var store: TranscriptionStore
+    @EnvironmentObject var themeManager: ThemeManager
+
+    var body: some View {
+        Group {
+            if !themeManager.hasOnboarded {
+                OnboardingView()
+            } else {
+                mainApp
+            }
+        }
+    }
+
+    private var mainApp: some View {
+        ZStack {
+            ThemeBackground(theme: themeManager.theme)
+
+            if store.jobs.isEmpty {
+                VStack(spacing: 0) {
+                    header
+                    VStack(spacing: 16) {
+                        Text(themeManager.greeting)
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                        DropZoneView()
+                        Text("by Dih (Darrel aka Marga's Wife)")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(24)
+                }
+            } else if let job = store.selectedJob, let response = job.status.response {
+                VStack(spacing: 0) {
+                    header
+                    TranscriptView(job: job, response: response)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    header
+                    QueueView()
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform")
+                    .foregroundColor(themeManager.theme.accent)
+                Text("The Yappologist")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+            }
+            Spacer()
+
+            // Back to the queue while a transcript is open
+            if store.selectedJobID != nil {
+                EchoButton("Queue", icon: "list.bullet") {
+                    store.selectedJobID = nil
+                }
+                .controlSize(.small)
+            }
+
+            // Theme switcher
+            Menu {
+                ForEach(AppTheme.allCases) { theme in
+                    Button {
+                        withAnimation(.easeInOut) { themeManager.theme = theme }
+                    } label: {
+                        if themeManager.theme == theme {
+                            Label(theme.label, systemImage: "checkmark")
+                        } else {
+                            Text(theme.label)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: themeManager.theme.icon)
+                    .font(.system(size: 14))
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 28)
+            .help("Theme")
+
+            SettingsButton {
+                Image(systemName: "gear")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
+            .help("Settings")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+    }
+}
+
+// MARK: - Queue
+
+struct QueueView: View {
+    @EnvironmentObject var store: TranscriptionStore
+    @EnvironmentObject var themeManager: ThemeManager
+    @State private var isTargeted = false
+    @State private var showFilePicker = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text(store.summary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                EchoButton("Add files", icon: "plus") {
+                    showFilePicker = true
+                }
+                .controlSize(.small)
+                if store.hasFinishedJobs {
+                    EchoButton("Clear finished", icon: "xmark") {
+                        store.clearFinished()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+
+            Divider()
+
+            if store.jobs.contains(where: { $0.status.isRunning }) {
+                WaveformLoadingView()
+                    .padding(.top, 12)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(store.jobs) { job in
+                        JobRow(job: job)
+                    }
+                }
+                .padding(20)
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(themeManager.theme.accent, lineWidth: isTargeted ? 2.5 : 0)
+                    .padding(8)
+                    .animation(.easeInOut(duration: 0.15), value: isTargeted)
+            )
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+            enqueueDroppedFiles(providers, into: store)
+        }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: acceptedMediaTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                store.enqueue(urls)
+            }
+        }
+    }
+}
+
+struct JobRow: View {
+    let job: TranscriptionJob
+    @EnvironmentObject var store: TranscriptionStore
+    @EnvironmentObject var themeManager: ThemeManager
+
+    private var statusColor: Color {
+        switch job.status {
+        case .done:      return .green
+        case .failed:    return .orange
+        case .cancelled: return .secondary
+        default:         return themeManager.theme.accent
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: job.status.icon)
+                    .font(.system(size: 14))
+                    .foregroundColor(statusColor)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(job.filename)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(job.status.label)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                actions
+            }
+
+            if !job.status.isFinished {
+                progressBar
+            }
+
+            if let message = job.status.errorMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+        )
+    }
+
+    @ViewBuilder
+    private var progressBar: some View {
+        if let fraction = job.status.fraction {
+            ProgressView(value: fraction)
+                .progressViewStyle(.linear)
+                .tint(statusColor)
+        } else {
+            // The server gives no signal while it transcribes, so this stage is honest
+            // about being indeterminate rather than faking a percentage.
+            ProgressView()
+                .progressViewStyle(.linear)
+                .tint(statusColor)
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        switch job.status {
+        case .done:
+            EchoButton("View", icon: "doc.text") {
+                store.selectedJobID = job.id
+            }
+            .controlSize(.small)
+        case .failed, .cancelled:
+            HStack(spacing: 8) {
+                EchoButton("Retry", icon: "arrow.counterclockwise") {
+                    store.retry(job.id)
+                }
+                .controlSize(.small)
+                removeButton
+            }
+        case .queued:
+            removeButton
+        default:
+            Button {
+                store.cancel(job.id)
+            } label: {
+                Image(systemName: "stop.circle")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel")
+        }
+    }
+
+    private var removeButton: some View {
+        Button {
+            store.remove(job.id)
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Remove")
+    }
+}
+
+// MARK: - Settings
+
+/// Opens the Settings scene. Uses SettingsLink on macOS 14+, falls back to the
+/// legacy selector on macOS 13.
+struct SettingsButton<Label: View>: View {
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        if #available(macOS 14.0, *) {
+            SettingsLink(label: label)
+                .buttonStyle(.plain)
+        } else {
+            Button(action: {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }, label: label)
+            .buttonStyle(.plain)
+        }
+    }
+}

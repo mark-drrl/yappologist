@@ -1,0 +1,45 @@
+name: Build The Yappologist
+
+# Builds the macOS app on a GitHub-hosted Mac and uploads the .app as an artifact.
+# No signing secrets needed — the project is configured for ad-hoc signing.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:   # lets you trigger a build by hand from the Actions tab
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      - name: Build (Release)
+        run: |
+          xcodebuild \
+            -project echo/echo.xcodeproj \
+            -target echo \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Zip the app
+        run: |
+          cd "build/Build/Products/Release"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "The Yappologist.app" "The Yappologist.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: The-Yappologist
+          path: build/Build/Products/Release/The Yappologist.zip
+          if-no-files-found: error

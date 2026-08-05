@@ -1,0 +1,19 @@
+# Build output
+build/
+echo/build_release/
+DerivedData/
+*.xcarchive
+
+# Shipped artifacts — rebuilt by CI, no need to version them
+dist/
+
+# Xcode per-user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# macOS
+.DS_Store
+
+# Local tool config
+.claude/settings.local.json
