@@ -33,15 +33,23 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Zip the app
+      # ditto (not zip) preserves the .app bundle's symlinks and permissions.
+      # The README ships inside the same zip so the download is self-explanatory.
+      - name: Package app + instructions
         run: |
-          cd build
+          mkdir -p "release/The Yappologist"
+          cp -R "build/The Yappologist.app" "release/The Yappologist/"
+          cp "READ ME FIRST.txt" "release/The Yappologist/"
+          cd release
           ditto -c -k --sequesterRsrc --keepParent \
-            "The Yappologist.app" "The Yappologist.zip"
+            "The Yappologist" "The Yappologist.zip"
+
+      - name: Verify architectures
+        run: lipo -archs "build/The Yappologist.app/Contents/MacOS/The Yappologist"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: The-Yappologist
-          path: build/The Yappologist.zip
+          path: release/The Yappologist.zip
           if-no-files-found: error
