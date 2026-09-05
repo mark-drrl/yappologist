@@ -46,6 +46,10 @@ struct TranscriptView: View {
             statusBar
             Divider()
             toolBar
+            if response.speakerCount > 1 {
+                Divider()
+                speakerStatsBar
+            }
             Divider()
 
             ScrollViewReader { proxy in
@@ -180,6 +184,27 @@ struct TranscriptView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+    }
+
+    private var speakerStatsBar: some View {
+        HStack(spacing: 14) {
+            ForEach(response.speakerStats) { stat in
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(speakerColors[(stat.displayNumber - 1) % speakerColors.count])
+                        .frame(width: 7, height: 7)
+                    Text("Speaker \(stat.displayNumber)")
+                        .font(.system(size: 11, weight: .medium))
+                    Text("\(formatMs(stat.durationMs)) · \(stat.wordCount) words")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
         .background(.ultraThinMaterial)
     }
 

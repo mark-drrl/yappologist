@@ -1,5 +1,29 @@
 import Foundation
 import SwiftUI
+import AppKit
+import UserNotifications
+
+/// Tells her a job finished when she's looking at something else — at five hours
+/// of audio a day, sitting and watching the queue isn't the workflow.
+enum JobNotifier {
+    static func requestAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    static func finished(filename: String, succeeded: Bool) {
+        guard !NSApp.isActive else { return }   // she's already watching
+
+        let content = UNMutableNotificationContent()
+        content.title = succeeded ? "Transcription finished" : "Transcription failed"
+        content.body = filename
+        content.sound = .default
+
+        let request = UNNotificationRequest(identifier: UUID().uuidString,
+                                            content: content,
+                                            trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+}
 
 enum JobStatus {
     case queued
@@ -99,6 +123,31 @@ final class TranscriptionStore: ObservableObject {
     private var activeJobID: TranscriptionJob.ID?
     private var activeWork: Task<TranscriptionResponse, Error>?
 
+    private static let pendingKey = "pendingJobPaths"
+
+    init() {
+        JobNotifier.requestAuthorization()
+        restorePending()
+    }
+
+    // MARK: - Persistence across launches
+
+    /// Only status transitions call this — progress updates mutate the array
+    /// directly, and writing on every frame of a progress bar would be absurd.
+    private func savePending() {
+        let paths = jobs.filter { !$0.status.isFinished }.map(\.url.path)
+        UserDefaults.standard.set(paths, forKey: Self.pendingKey)
+    }
+
+    private func restorePending() {
+        let paths = UserDefaults.standard.stringArray(forKey: Self.pendingKey) ?? []
+        let urls = paths
+            .map { URL(fileURLWithPath: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
+        enqueue(urls)
+    }
+
     // MARK: - Derived state
 
     var hasFinishedJobs: Bool { jobs.contains { $0.status.isFinished } }
@@ -130,6 +179,7 @@ final class TranscriptionStore: ObservableObject {
         }
 
         jobs.append(contentsOf: newJobs)
+        savePending()
         startRunner()
     }
 
@@ -151,10 +201,12 @@ final class TranscriptionStore: ObservableObject {
     func remove(_ id: TranscriptionJob.ID) {
         if activeJobID == id { activeWork?.cancel() }
         jobs.removeAll { $0.id == id }
+        savePending()
     }
 
     func clearFinished() {
         jobs.removeAll { $0.status.isFinished }
+        savePending()
     }
 
     // MARK: - Runner
@@ -213,6 +265,7 @@ final class TranscriptionStore: ObservableObject {
                                                      audioURL: url,
                                                      response: response)
             setStatus(id, .done(saved.id))
+            JobNotifier.finished(filename: filename, succeeded: true)
             // Open it automatically only for a lone file, matching the old
             // single-file flow. During a batch this would yank the user off the
             // queue mid-run.
@@ -225,6 +278,7 @@ final class TranscriptionStore: ObservableObject {
             setStatus(id, .cancelled)
         } catch {
             setStatus(id, .failed(error.localizedDescription))
+            JobNotifier.finished(filename: filename, succeeded: false)
         }
     }
 
@@ -233,6 +287,7 @@ final class TranscriptionStore: ObservableObject {
     private func setStatus(_ id: TranscriptionJob.ID, _ status: JobStatus) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
         jobs[index].status = status
+        savePending()
     }
 
     private func setPrepareProgress(_ id: TranscriptionJob.ID, _ progress: Double) {

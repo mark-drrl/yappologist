@@ -78,6 +78,43 @@ extension TranscriptionResponse {
     }
 }
 
+/// Azure's published rate for MAI-Transcribe-2 batch transcription. Used only for
+/// the running estimate in History — the Azure portal is the authority on billing.
+let transcriptionCostPerHour = 0.10
+
+struct SpeakerStat: Identifiable {
+    var id: Int { speaker }
+    let speaker: Int
+    let displayNumber: Int
+    let durationMs: Int
+    let wordCount: Int
+}
+
+extension TranscriptionResponse {
+    /// How long each speaker talked and how much they said — the sort of thing
+    /// that's obvious from the data but tedious to work out by eye.
+    var speakerStats: [SpeakerStat] {
+        var order: [Int] = []
+        var durations: [Int: Int] = [:]
+        var words: [Int: Int] = [:]
+
+        for utterance in utterances {
+            if !order.contains(utterance.speaker) { order.append(utterance.speaker) }
+            durations[utterance.speaker, default: 0] += utterance.durationMs
+            words[utterance.speaker, default: 0] += utterance.text
+                .split(whereSeparator: { $0 == " " || $0.isNewline })
+                .count
+        }
+
+        return order.enumerated().map { index, speaker in
+            SpeakerStat(speaker: speaker,
+                        displayNumber: index + 1,
+                        durationMs: durations[speaker] ?? 0,
+                        wordCount: words[speaker] ?? 0)
+        }
+    }
+}
+
 func formatMs(_ ms: Int) -> String {
     let total = ms / 1000
     let h = total / 3600

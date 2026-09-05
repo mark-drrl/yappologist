@@ -125,12 +125,22 @@ struct HistoryView: View {
         return df
     }()
 
+    private var totalHours: Double {
+        library.items.reduce(0) { $0 + Double($1.response.durationMs) / 3_600_000 }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("\(library.items.count) saved transcript\(library.items.count == 1 ? "" : "s")")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.secondary)
+                Text("·")
+                    .foregroundColor(.secondary)
+                Text(String(format: "%.1f hours · ~$%.2f", totalHours, totalHours * transcriptionCostPerHour))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .help("Estimated at $\(String(format: "%.2f", transcriptionCostPerHour))/hour. Check the Azure portal for actual billing.")
                 Spacer()
             }
             .padding(.horizontal, 20)
