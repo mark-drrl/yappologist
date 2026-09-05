@@ -8,6 +8,13 @@ struct SettingsView: View {
     @State private var isChecking = false
     @State private var errorMsg: String?
 
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "The Yappologist \(short) (build \(build))"
+    }
+
     var body: some View {
         Form {
             Section {
@@ -137,9 +144,15 @@ struct SettingsView: View {
                 Text("Export")
                     .font(.system(size: 13, weight: .semibold))
             } footer: {
-                Text("Turn both off for plain prose with no headers.")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 11))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Turn both off for plain prose with no headers.")
+                    // So she can say which build she's on when something goes wrong.
+                    Text(appVersion)
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .textSelection(.enabled)
+                }
+                .foregroundColor(.secondary)
+                .font(.system(size: 11))
             }
         }
         .formStyle(.grouped)

@@ -6,12 +6,15 @@ name: Build The Yappologist
 on:
   push:
     branches: [main, master]
+    tags: ["v*"]       # tagging cuts a permanent release
   pull_request:
   workflow_dispatch:   # lets you trigger a build by hand from the Actions tab
 
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write  # needed to publish a release
 
     steps:
       - uses: actions/checkout@v4
@@ -53,3 +56,12 @@ jobs:
           name: The-Yappologist
           path: release/The Yappologist.zip
           if-no-files-found: error
+
+      # Artifacts expire after 90 days; a release keeps the build permanently and
+      # gives you something known-good to roll back to.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/The Yappologist.zip
+          generate_release_notes: true
