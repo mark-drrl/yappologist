@@ -56,24 +56,50 @@ STEP 4 — Transcribe
   Each one shows its own progress bar, and you can cancel,
   retry, or remove any of them while the rest keep going.
 - Drop more files onto the queue at any time to add them.
+- You'll get a notification when a file finishes if you've
+  switched to something else.
 - When a file finishes, click "View" to read its transcript.
   (Drop just one file and it opens automatically.)
-- Copy the transcript, or export it as Word, PDF, or .txt —
-  exports are named after the original file.
 
 Supported: mp3, wav, mp4, mov, flac, aac, ogg, opus, webm, m4a
 (and large/odd files are auto-converted for you).
 
 ────────────────────────────────────────
-If something goes wrong
+STEP 5 — Fix and listen
 ────────────────────────────────────────
-A failed file shows the reason right in its row, and the rest of
-the queue keeps running. Click "Retry" to try it again — server
-hiccups usually clear on a second attempt.
+No transcription is perfect, especially with Taglish. So:
+
+- Click any line to edit it. Changes save automatically.
+- Click a timestamp to hear that exact moment.
+- Change playback speed (0.5× to 2×) while you check.
+- Turn on "Follow" and the transcript scrolls with the audio.
+- Got the wrong speaker? Click the "Speaker 1" badge and
+  reassign that block.
+- Search with ⌘F. Type a replacement and hit "Replace all"
+  to fix the same mistake everywhere at once.
+
+Handy keys:  ⌘F search  ·  ⌘P play/pause  ·  ⌘← ⌘→ jump between
+speakers.
 
 ────────────────────────────────────────
-Need to change your key or theme?
+STEP 6 — Export
 ────────────────────────────────────────
-Click the gear icon (top-right) or press Command + comma.
+Copy the transcript, or export it as Word, PDF, or .txt.
+Exports are named after the original recording.
+
+Everything you transcribe is saved. Click "History" to reopen
+old transcripts, or export them all to a folder at once.
+
+────────────────────────────────────────
+Settings (gear icon, or Command + comma)
+────────────────────────────────────────
+- Change your key, name or theme.
+- Custom vocabulary: list names and jargon, one per line, and
+  it will listen out for them. This is the best way to fix
+  words it keeps getting wrong.
+- Auto-corrections: write rules like  wrong => right  and they
+  are applied to every new transcript automatically.
+- Remove fillers (um, uh) if you want a tidier transcript.
+- Choose whether exports include timestamps and speaker labels.
 
 Enjoy! 💜
