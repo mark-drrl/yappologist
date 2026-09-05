@@ -1,19 +1,22 @@
 import Foundation
 
 /// A finished transcript, normalized away from any one provider's response shape.
-struct TranscriptionResponse {
-    let text: String
+/// Codable here is for saving to disk, not for decoding an API — the client maps
+/// provider responses into this shape by hand.
+struct TranscriptionResponse: Codable {
+    var text: String
     let durationMs: Int
-    let utterances: [Utterance]
+    var utterances: [Utterance]
 }
 
-struct Utterance: Identifiable {
-    let id = UUID()
-    let text: String
+struct Utterance: Identifiable, Codable {
+    var id = UUID()
+    /// Editable — no engine transcribes Taglish perfectly, so corrections land here.
+    var text: String
     let startMs: Int
     let durationMs: Int
-    let speaker: Int
-    let language: String
+    var speaker: Int
+    var language: String
 }
 
 /// Groups of consecutive same-speaker utterances

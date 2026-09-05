@@ -6,7 +6,9 @@ enum JobStatus {
     case preparing(Double)
     case uploading(Double)
     case processing
-    case done(TranscriptionResponse)
+    /// Carries the id of the saved transcript, not the transcript itself — the
+    /// library owns it from here so edits survive quitting the app.
+    case done(UUID)
     case failed(String)
     case cancelled
 
@@ -24,8 +26,8 @@ enum JobStatus {
         }
     }
 
-    var response: TranscriptionResponse? {
-        if case .done(let response) = self { return response }
+    var transcriptID: UUID? {
+        if case .done(let id) = self { return id }
         return nil
     }
 
@@ -47,8 +49,8 @@ enum JobStatus {
     }
 
     /// Determinate progress, or nil when there is nothing meaningful to show.
-    /// Preparing takes the first slice of the bar, uploading the rest; the server's own
-    /// transcription time is unknowable, so that stage runs indeterminate.
+    /// Preparing takes the first slice of the bar, uploading the rest; the server's
+    /// own transcription time is unknowable, so that stage runs indeterminate.
     var fraction: Double? {
         switch self {
         case .queued:            return 0
@@ -78,35 +80,32 @@ struct TranscriptionJob: Identifiable {
     let filename: String
     var status: JobStatus = .queued
 
-    init(url: URL) {
+    init(url: URL, status: JobStatus = .queued) {
         self.url = url
         self.filename = url.lastPathComponent
+        self.status = status
     }
 }
 
 @MainActor
 final class TranscriptionStore: ObservableObject {
     @Published private(set) var jobs: [TranscriptionJob] = []
-    @Published var selectedJobID: TranscriptionJob.ID?
+    /// The transcript currently open for reading and editing, if any.
+    @Published var openTranscriptID: UUID?
 
-    /// One runner drains the queue serially — parallel uploads would fight for bandwidth
-    /// and trip the API's rate limit.
+    /// One runner drains the queue serially — parallel uploads would fight for
+    /// bandwidth and trip the API's concurrency limit.
     private var runner: Task<Void, Never>?
     private var activeJobID: TranscriptionJob.ID?
     private var activeWork: Task<TranscriptionResponse, Error>?
 
     // MARK: - Derived state
 
-    var selectedJob: TranscriptionJob? {
-        guard let selectedJobID else { return nil }
-        return jobs.first { $0.id == selectedJobID }
-    }
-
     var hasFinishedJobs: Bool { jobs.contains { $0.status.isFinished } }
 
     var summary: String {
         guard !jobs.isEmpty else { return "" }
-        let done = jobs.filter { if case .done = $0.status { return true }; return false }.count
+        let done = jobs.filter { $0.status.transcriptID != nil }.count
         let failed = jobs.filter { if case .failed = $0.status { return true }; return false }.count
         let pending = jobs.filter { !$0.status.isFinished }.count
 
@@ -121,7 +120,16 @@ final class TranscriptionStore: ObservableObject {
 
     func enqueue(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        jobs.append(contentsOf: urls.map(TranscriptionJob.init))
+
+        let newJobs = urls.map { url -> TranscriptionJob in
+            // Already transcribed: reuse it rather than paying to do it again.
+            if let existing = TranscriptLibrary.shared.existingTranscript(forAudioAt: url) {
+                return TranscriptionJob(url: url, status: .done(existing.id))
+            }
+            return TranscriptionJob(url: url)
+        }
+
+        jobs.append(contentsOf: newJobs)
         startRunner()
     }
 
@@ -143,13 +151,10 @@ final class TranscriptionStore: ObservableObject {
     func remove(_ id: TranscriptionJob.ID) {
         if activeJobID == id { activeWork?.cancel() }
         jobs.removeAll { $0.id == id }
-        if selectedJobID == id { selectedJobID = nil }
     }
 
     func clearFinished() {
-        let removed = Set(jobs.filter { $0.status.isFinished }.map(\.id))
         jobs.removeAll { $0.status.isFinished }
-        if let selectedJobID, removed.contains(selectedJobID) { self.selectedJobID = nil }
     }
 
     // MARK: - Runner
@@ -171,6 +176,7 @@ final class TranscriptionStore: ObservableObject {
     private func process(_ id: TranscriptionJob.ID) async {
         guard let job = jobs.first(where: { $0.id == id }) else { return }
         let url = job.url
+        let filename = job.filename
 
         activeJobID = id
         defer {
@@ -203,10 +209,14 @@ final class TranscriptionStore: ObservableObject {
 
         do {
             let response = try await work.value
-            setStatus(id, .done(response))
-            // Open it automatically only for a lone file, matching the old single-file
-            // flow. During a batch this would yank the user off the queue mid-run.
-            if jobs.count == 1 { selectedJobID = id }
+            let saved = TranscriptLibrary.shared.add(filename: filename,
+                                                     audioURL: url,
+                                                     response: response)
+            setStatus(id, .done(saved.id))
+            // Open it automatically only for a lone file, matching the old
+            // single-file flow. During a batch this would yank the user off the
+            // queue mid-run.
+            if jobs.count == 1 { openTranscriptID = saved.id }
         } catch is CancellationError {
             setStatus(id, .cancelled)
         } catch TranscribeError.cancelled {

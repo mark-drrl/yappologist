@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var store: TranscriptionStore
     @EnvironmentObject var themeManager: ThemeManager
+    @EnvironmentObject var library: TranscriptLibrary
+
+    @State private var showHistory = false
 
     var body: some View {
         Group {
@@ -18,7 +21,17 @@ struct ContentView: View {
         ZStack {
             ThemeBackground(theme: themeManager.theme)
 
-            if store.jobs.isEmpty {
+            if let id = store.openTranscriptID, let binding = library.binding(for: id) {
+                VStack(spacing: 0) {
+                    header
+                    TranscriptView(transcript: binding)
+                }
+            } else if showHistory {
+                VStack(spacing: 0) {
+                    header
+                    HistoryView()
+                }
+            } else if store.jobs.isEmpty {
                 VStack(spacing: 0) {
                     header
                     VStack(spacing: 16) {
@@ -31,11 +44,6 @@ struct ContentView: View {
                             .foregroundColor(.secondary)
                     }
                     .padding(24)
-                }
-            } else if let job = store.selectedJob, let response = job.status.response {
-                VStack(spacing: 0) {
-                    header
-                    TranscriptView(job: job, response: response)
                 }
             } else {
                 VStack(spacing: 0) {
@@ -57,9 +65,15 @@ struct ContentView: View {
             Spacer()
 
             // Back to the queue while a transcript is open
-            if store.selectedJobID != nil {
+            if store.openTranscriptID != nil {
                 EchoButton("Queue", icon: "list.bullet") {
-                    store.selectedJobID = nil
+                    store.openTranscriptID = nil
+                    showHistory = false
+                }
+                .controlSize(.small)
+            } else if !library.items.isEmpty {
+                EchoButton(showHistory ? "Queue" : "History", icon: showHistory ? "list.bullet" : "clock.arrow.circlepath") {
+                    showHistory.toggle()
                 }
                 .controlSize(.small)
             }
@@ -95,6 +109,83 @@ struct ContentView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial)
+    }
+}
+
+// MARK: - History
+
+struct HistoryView: View {
+    @EnvironmentObject var store: TranscriptionStore
+    @EnvironmentObject var library: TranscriptLibrary
+
+    private static let dateFormatter: DateFormatter = {
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        return df
+    }()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("\(library.items.count) saved transcript\(library.items.count == 1 ? "" : "s")")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(library.items) { item in
+                        HStack(spacing: 10) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                                .frame(width: 18)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.filename)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Text("\(Self.dateFormatter.string(from: item.createdAt)) · \(item.response.speakerCount) speaker\(item.response.speakerCount == 1 ? "" : "s") · \(item.response.formattedDuration)")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            EchoButton("Open", icon: "doc.text") {
+                                store.openTranscriptID = item.id
+                            }
+                            .controlSize(.small)
+
+                            Button {
+                                library.delete(item.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Delete transcript")
+                        }
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+                                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
+                        )
+                    }
+                }
+                .padding(20)
+            }
+        }
     }
 }
 
@@ -229,8 +320,8 @@ struct JobRow: View {
                 .progressViewStyle(.linear)
                 .tint(statusColor)
         } else {
-            // The server gives no signal while it transcribes, so this stage is honest
-            // about being indeterminate rather than faking a percentage.
+            // The server gives no signal while it transcribes, so this stage is
+            // honest about being indeterminate rather than faking a percentage.
             ProgressView()
                 .progressViewStyle(.linear)
                 .tint(statusColor)
@@ -239,32 +330,34 @@ struct JobRow: View {
 
     @ViewBuilder
     private var actions: some View {
-        switch job.status {
-        case .done:
+        if let transcriptID = job.status.transcriptID {
             EchoButton("View", icon: "doc.text") {
-                store.selectedJobID = job.id
+                store.openTranscriptID = transcriptID
             }
             .controlSize(.small)
-        case .failed, .cancelled:
-            HStack(spacing: 8) {
-                EchoButton("Retry", icon: "arrow.counterclockwise") {
-                    store.retry(job.id)
+        } else {
+            switch job.status {
+            case .failed, .cancelled:
+                HStack(spacing: 8) {
+                    EchoButton("Retry", icon: "arrow.counterclockwise") {
+                        store.retry(job.id)
+                    }
+                    .controlSize(.small)
+                    removeButton
                 }
-                .controlSize(.small)
+            case .queued:
                 removeButton
+            default:
+                Button {
+                    store.cancel(job.id)
+                } label: {
+                    Image(systemName: "stop.circle")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Cancel")
             }
-        case .queued:
-            removeButton
-        default:
-            Button {
-                store.cancel(job.id)
-            } label: {
-                Image(systemName: "stop.circle")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Cancel")
         }
     }
 
