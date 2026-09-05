@@ -250,11 +250,22 @@ actor TranscribeClient {
     }
 
     private func definitionJSON() -> String {
-        let definition: [String: Any] = [
+        var definition: [String: Any] = [
             "enhancedMode": ["enabled": true, "model": model],
             "diarization": ["enabled": true],
-            "modelOptions": ["timestamps": "segment", "transcribeStyle": "verbatim"],
+            "modelOptions": [
+                "timestamps": "segment",
+                "transcribeStyle": AzureSettings.cleanTranscript ? "clean" : "verbatim",
+            ],
         ]
+
+        // Biasing toward known names and jargon is the cheapest accuracy win
+        // available — proper nouns are where recognition fails hardest.
+        let phrases = AzureSettings.vocabularyPhrases
+        if !phrases.isEmpty {
+            definition["phraseList"] = ["phrases": phrases]
+        }
+
         guard let data = try? JSONSerialization.data(withJSONObject: definition),
               let json = String(data: data, encoding: .utf8) else {
             return "{\"enhancedMode\":{\"enabled\":true,\"model\":\"\(model)\"},\"diarization\":{\"enabled\":true}}"

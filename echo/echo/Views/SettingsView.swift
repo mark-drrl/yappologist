@@ -76,6 +76,30 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .font(.system(size: 11))
             }
+            Section {
+                Toggle("Remove fillers (um, uh, false starts)", isOn: Binding(
+                    get: { AzureSettings.cleanTranscript },
+                    set: { AzureSettings.cleanTranscript = $0 }
+                ))
+
+                TextEditor(text: Binding(
+                    get: { AzureSettings.vocabularyText },
+                    set: { AzureSettings.vocabularyText = $0 }
+                ))
+                .font(.system(size: 12, design: .monospaced))
+                .frame(width: 320, height: 90)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+            } header: {
+                Text("Transcription")
+                    .font(.system(size: 13, weight: .semibold))
+            } footer: {
+                Text("Custom vocabulary: one term per line — names, places, jargon. Recognition is biased toward these, which is where transcription most often goes wrong.")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+            }
         }
         .formStyle(.grouped)
         .padding(20)

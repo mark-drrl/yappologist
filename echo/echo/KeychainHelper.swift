@@ -58,9 +58,31 @@ enum KeychainError: LocalizedError {
 /// UserDefaults is the right home for it.
 enum AzureSettings {
     private static let resourceNameKey = "azureResourceName"
+    private static let vocabularyKey = "customVocabulary"
+    private static let cleanTranscriptKey = "cleanTranscript"
 
     static var resourceName: String {
         get { UserDefaults.standard.string(forKey: resourceNameKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: resourceNameKey) }
+    }
+
+    /// Names, jargon and proper nouns to bias recognition toward. Stored as free
+    /// text so the settings field stays a simple editor; one term per line.
+    static var vocabularyText: String {
+        get { UserDefaults.standard.string(forKey: vocabularyKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: vocabularyKey) }
+    }
+
+    static var vocabularyPhrases: [String] {
+        vocabularyText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// When true, the server strips fillers and false starts.
+    static var cleanTranscript: Bool {
+        get { UserDefaults.standard.bool(forKey: cleanTranscriptKey) }
+        set { UserDefaults.standard.set(newValue, forKey: cleanTranscriptKey) }
     }
 }
