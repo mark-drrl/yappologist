@@ -129,6 +129,15 @@ struct HistoryView: View {
         library.items.reduce(0) { $0 + Double($1.response.durationMs) / 3_600_000 }
     }
 
+    /// Billing runs monthly, so this is the number that matters day to day —
+    /// lifetime spend keeps growing and stops meaning anything.
+    private var hoursThisMonth: Double {
+        let calendar = Calendar.current
+        return library.items
+            .filter { calendar.isDate($0.createdAt, equalTo: Date(), toGranularity: .month) }
+            .reduce(0) { $0 + Double($1.response.durationMs) / 3_600_000 }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -137,10 +146,13 @@ struct HistoryView: View {
                     .foregroundColor(.secondary)
                 Text("·")
                     .foregroundColor(.secondary)
-                Text(String(format: "%.1f hours · ~$%.2f", totalHours, totalHours * transcriptionCostPerHour))
-                    .font(.system(size: 12))
+                Text(String(format: "this month %.1f h · ~$%.2f", hoursThisMonth, hoursThisMonth * transcriptionCostPerHour))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.secondary)
-                    .help("Estimated at $\(String(format: "%.2f", transcriptionCostPerHour))/hour. Check the Azure portal for actual billing.")
+                Text(String(format: "(all time %.1f h · ~$%.2f)", totalHours, totalHours * transcriptionCostPerHour))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .help("Estimated at $\(String(format: "%.2f", transcriptionCostPerHour))/hour of audio. The Azure portal is the authority on actual billing and remaining credit.")
                 Spacer()
                 EchoButton("Export all", icon: "square.and.arrow.down") {
                     Exporters.exportAll(library.items)
