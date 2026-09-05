@@ -5,6 +5,7 @@ struct SettingsView: View {
     @State private var apiKey: String = ""
     @State private var resourceName: String = ""
     @State private var saved = false
+    @State private var isChecking = false
     @State private var errorMsg: String?
 
     var body: some View {
@@ -45,11 +46,12 @@ struct SettingsView: View {
                     .frame(width: 320)
 
                 HStack {
-                    EchoButton("Save", icon: "key") {
+                    EchoButton(isChecking ? "Checking…" : "Save", icon: "key") {
                         saveKey()
                     }
+                    .disabled(isChecking)
                     if saved {
-                        Label("Saved!", systemImage: "checkmark.circle.fill")
+                        Label("Signed in", systemImage: "checkmark.circle.fill")
                             .foregroundColor(.green)
                             .font(.system(size: 12, weight: .medium))
                             .transition(.opacity)
@@ -57,13 +59,14 @@ struct SettingsView: View {
                 }
 
                 if let err = errorMsg {
-                    Text(err).foregroundColor(.red).font(.system(size: 11))
+                    Text(err)
+                        .foregroundColor(.red)
+                        .font(.system(size: 11))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Button("Clear saved key", role: .destructive) {
-                    KeychainHelper.delete()
-                    apiKey = ""
-                    saved = false
+                Button("Sign out", role: .destructive) {
+                    signOut()
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.red)
@@ -148,6 +151,8 @@ struct SettingsView: View {
         }
     }
 
+    /// Checks the credentials against Azure before storing them, so a bad paste
+    /// is caught here rather than by a failed transcription later.
     private func saveKey() {
         errorMsg = nil
         let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
@@ -160,15 +165,33 @@ struct SettingsView: View {
             errorMsg = "Resource name cannot be empty."
             return
         }
-        do {
-            AzureSettings.resourceName = trimmedResource
-            try KeychainHelper.save(trimmed)
-            withAnimation { saved = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+
+        isChecking = true
+        Task {
+            do {
+                try await TranscribeClient.validate(resourceName: trimmedResource, apiKey: trimmed)
+                AzureSettings.resourceName = trimmedResource
+                try KeychainHelper.save(trimmed)
+                isChecking = false
+                withAnimation { saved = true }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 withAnimation { saved = false }
+            } catch {
+                isChecking = false
+                errorMsg = error.localizedDescription
             }
-        } catch {
-            errorMsg = error.localizedDescription
         }
+    }
+
+    /// Forgets the credentials and returns to the welcome screen. Transcripts
+    /// already saved are left alone.
+    private func signOut() {
+        KeychainHelper.delete()
+        AzureSettings.resourceName = ""
+        apiKey = ""
+        resourceName = ""
+        saved = false
+        errorMsg = nil
+        themeManager.hasOnboarded = false
     }
 }

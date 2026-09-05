@@ -6,9 +6,13 @@ struct OnboardingView: View {
     @State private var name: String = ""
     @State private var apiKey: String = ""
     @State private var resourceName: String = ""
+    @State private var isSigningIn = false
+    @State private var signInError: String?
 
     private var canContinue: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && !resourceName.trimmingCharacters(in: .whitespaces).isEmpty
+            && !apiKey.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private var liveGreeting: String {
@@ -59,9 +63,16 @@ struct OnboardingView: View {
                             SecureField("Paste the key you were given", text: $apiKey)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 14))
-                            Text("Both were sent to you separately. The key is stored securely in your Mac's Keychain. You can change them later in Settings.")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                            if let signInError {
+                                Text(signInError)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.red)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else {
+                                Text("Both were sent to you separately. The key is stored securely in your Mac's Keychain — you'll only enter it this once.")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
 
@@ -79,17 +90,24 @@ struct OnboardingView: View {
                     }
 
                     // Continue
-                    Button(action: finish) {
-                        Text("Get started")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
-                            .background(canContinue ? themeManager.theme.accent : Color.secondary.opacity(0.3))
-                            .foregroundColor(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Button(action: signIn) {
+                        HStack(spacing: 8) {
+                            if isSigningIn {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .colorInvert()
+                            }
+                            Text(isSigningIn ? "Checking…" : "Get started")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(canContinue ? themeManager.theme.accent : Color.secondary.opacity(0.3))
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(!canContinue)
+                    .disabled(!canContinue || isSigningIn)
                     .padding(.top, 4)
 
                     Text("by Dih (Darrel aka Marga's Wife)")
@@ -117,20 +135,31 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func finish() {
+    /// Verifies the credentials against Azure before letting her in, so a typo
+    /// surfaces here rather than as a failed transcription later. The check sends
+    /// no audio, so it costs nothing.
+    private func signIn() {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
         let trimmedResource = resourceName.trimmingCharacters(in: .whitespaces)
 
-        themeManager.userName = trimmedName
-        if !trimmedResource.isEmpty {
-            AzureSettings.resourceName = trimmedResource
-        }
-        if !trimmedKey.isEmpty {
-            try? KeychainHelper.save(trimmedKey)
-        }
-        withAnimation(.easeInOut) {
-            themeManager.hasOnboarded = true
+        signInError = nil
+        isSigningIn = true
+
+        Task {
+            do {
+                try await TranscribeClient.validate(resourceName: trimmedResource, apiKey: trimmedKey)
+                themeManager.userName = trimmedName
+                AzureSettings.resourceName = trimmedResource
+                try? KeychainHelper.save(trimmedKey)
+                isSigningIn = false
+                withAnimation(.easeInOut) {
+                    themeManager.hasOnboarded = true
+                }
+            } catch {
+                isSigningIn = false
+                signInError = error.localizedDescription
+            }
         }
     }
 }

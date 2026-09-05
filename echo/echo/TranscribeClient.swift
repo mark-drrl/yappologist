@@ -3,6 +3,7 @@ import Foundation
 enum TranscribeError: LocalizedError {
     case missingAPIKey
     case missingResourceName
+    case resourceNotFound(String)
     case httpError(Int, String)
     case decodingError(Error)
     case networkError(Error)
@@ -14,6 +15,8 @@ enum TranscribeError: LocalizedError {
             return "No API key found. Open Settings (⌘,) to add your Azure Speech key."
         case .missingResourceName:
             return "No Azure resource name set. Open Settings (⌘,) and add it."
+        case .resourceNotFound(let name):
+            return "Couldn't reach a resource called \"\(name)\". Check the spelling — it's the first part of your Azure endpoint."
         case .cancelled:
             return "Cancelled."
         case .httpError(let code, let detail):
@@ -71,8 +74,63 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
 actor TranscribeClient {
     static let shared = TranscribeClient()
 
-    private let apiVersion = "2025-10-15"
-    private let model = "MAI-Transcribe-2"
+    static let apiVersion = "2025-10-15"
+    static let model = "MAI-Transcribe-2"
+
+
+    static func endpoint(for resourceName: String) -> URL? {
+        let resource = resourceName.trimmingCharacters(in: .whitespaces)
+        guard !resource.isEmpty else { return nil }
+        return URL(string: "https://\(resource).cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=\(apiVersion)")
+    }
+
+    /// Checks a resource name and key without sending any audio.
+    ///
+    /// The endpoint answers 400 "Audio data must be provided." when the credentials
+    /// are good and 401 when they aren't, so this proves the key, the resource and
+    /// the region all line up — and nothing is transcribed, so nothing is billed.
+    static func validate(resourceName: String, apiKey: String) async throws {
+        let key = apiKey.trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty else { throw TranscribeError.missingAPIKey }
+
+        let resource = resourceName.trimmingCharacters(in: .whitespaces)
+        guard !resource.isEmpty else { throw TranscribeError.missingResourceName }
+        guard let url = endpoint(for: resource) else { throw TranscribeError.missingResourceName }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        let definition = "{\"enhancedMode\":{\"enabled\":true,\"model\":\"\(model)\"}}"
+        var body = ""
+        body += "--\(boundary)\r\n"
+        body += "Content-Disposition: form-data; name=\"definition\"\r\n"
+        body += "Content-Type: application/json\r\n\r\n"
+        body += "\(definition)\r\n"
+        body += "--\(boundary)--\r\n"
+        request.httpBody = Data(body.utf8)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError where error.code == .cannotFindHost || error.code == .cannotConnectToHost {
+            throw TranscribeError.resourceNotFound(resource)
+        } catch {
+            throw TranscribeError.networkError(error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw TranscribeError.networkError(URLError(.badServerResponse))
+        }
+
+        // 400 means it accepted us and only objected to the missing audio.
+        guard http.statusCode == 400 || http.statusCode == 200 else {
+            throw TranscribeError.httpError(http.statusCode, explanation(from: data))
+        }
+    }
 
     /// Below this, a phrase is too short for language identification to be reliable.
     private let shortPhraseMs = 1500
@@ -84,8 +142,7 @@ actor TranscribeClient {
             throw TranscribeError.missingAPIKey
         }
         let resource = AzureSettings.resourceName.trimmingCharacters(in: .whitespaces)
-        guard !resource.isEmpty,
-              let endpoint = URL(string: "https://\(resource).cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=\(apiVersion)") else {
+        guard let endpoint = Self.endpoint(for: resource) else {
             throw TranscribeError.missingResourceName
         }
 
@@ -111,6 +168,8 @@ actor TranscribeClient {
             throw TranscribeError.cancelled
         } catch is CancellationError {
             throw TranscribeError.cancelled
+        } catch let error as URLError where error.code == .cannotFindHost || error.code == .cannotConnectToHost {
+            throw TranscribeError.resourceNotFound(resource)
         } catch {
             throw TranscribeError.networkError(error)
         }
@@ -254,7 +313,7 @@ actor TranscribeClient {
 
     private func definitionJSON() -> String {
         var definition: [String: Any] = [
-            "enhancedMode": ["enabled": true, "model": model],
+            "enhancedMode": ["enabled": true, "model": Self.model],
             "diarization": ["enabled": true],
             "modelOptions": [
                 "timestamps": "segment",
@@ -271,7 +330,7 @@ actor TranscribeClient {
 
         guard let data = try? JSONSerialization.data(withJSONObject: definition),
               let json = String(data: data, encoding: .utf8) else {
-            return "{\"enhancedMode\":{\"enabled\":true,\"model\":\"\(model)\"},\"diarization\":{\"enabled\":true}}"
+            return "{\"enhancedMode\":{\"enabled\":true,\"model\":\"\(Self.model)\"},\"diarization\":{\"enabled\":true}}"
         }
         return json
     }
