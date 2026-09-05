@@ -10,7 +10,7 @@
 		F76432DF20964AA5BA922E16 /* echoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16797F666F104AB68D8F8E1C /* echoApp.swift */; };
 		910AB85F74BD4577A9707BE8 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112B6263AF8043368B0D11A9 /* KeychainHelper.swift */; };
 		75857E3095B942B5A58DDFBC /* TranscriptionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBDC20C408E1401FA38418F8 /* TranscriptionModels.swift */; };
-		D31007BBD2D04C3F92913071 /* ModulateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC9EAAF04FD4E18BE62E856 /* ModulateClient.swift */; };
+		D31007BBD2D04C3F92913071 /* TranscribeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC9EAAF04FD4E18BE62E856 /* TranscribeClient.swift */; };
 		A95731E6B0BA409CBA662FDF /* AudioPreprocessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 368A6EBA715F4EF5ADB03C9C /* AudioPreprocessor.swift */; };
 		76C64F25B35E4DD381DF00D1 /* TranscriptionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E00348DAC1944D883979814 /* TranscriptionStore.swift */; };
 		CF8158AF9673447EB735F097 /* Exporters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60E62BE36E540A68B90D7E3 /* Exporters.swift */; };
@@ -31,7 +31,7 @@
 		16797F666F104AB68D8F8E1C /* echoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = echoApp.swift; sourceTree = "<group>"; };
 		112B6263AF8043368B0D11A9 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		FBDC20C408E1401FA38418F8 /* TranscriptionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionModels.swift; sourceTree = "<group>"; };
-		6FC9EAAF04FD4E18BE62E856 /* ModulateClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModulateClient.swift; sourceTree = "<group>"; };
+		6FC9EAAF04FD4E18BE62E856 /* TranscribeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscribeClient.swift; sourceTree = "<group>"; };
 		368A6EBA715F4EF5ADB03C9C /* AudioPreprocessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPreprocessor.swift; sourceTree = "<group>"; };
 		0E00348DAC1944D883979814 /* TranscriptionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionStore.swift; sourceTree = "<group>"; };
 		A60E62BE36E540A68B90D7E3 /* Exporters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Exporters.swift; sourceTree = "<group>"; };
@@ -65,7 +65,7 @@
 				16797F666F104AB68D8F8E1C /* echoApp.swift */,
 				112B6263AF8043368B0D11A9 /* KeychainHelper.swift */,
 				FBDC20C408E1401FA38418F8 /* TranscriptionModels.swift */,
-				6FC9EAAF04FD4E18BE62E856 /* ModulateClient.swift */,
+				6FC9EAAF04FD4E18BE62E856 /* TranscribeClient.swift */,
 				368A6EBA715F4EF5ADB03C9C /* AudioPreprocessor.swift */,
 				0E00348DAC1944D883979814 /* TranscriptionStore.swift */,
 				F6AC332EE2EE4CD6BDBF94B1 /* ThemeManager.swift */,
@@ -180,7 +180,7 @@
 				F76432DF20964AA5BA922E16 /* echoApp.swift in Sources */,
 				910AB85F74BD4577A9707BE8 /* KeychainHelper.swift in Sources */,
 				75857E3095B942B5A58DDFBC /* TranscriptionModels.swift in Sources */,
-				D31007BBD2D04C3F92913071 /* ModulateClient.swift in Sources */,
+				D31007BBD2D04C3F92913071 /* TranscribeClient.swift in Sources */,
 				A95731E6B0BA409CBA662FDF /* AudioPreprocessor.swift in Sources */,
 				76C64F25B35E4DD381DF00D1 /* TranscriptionStore.swift in Sources */,
 				5E36FCBA621F4A3D9D34EB30 /* ThemeManager.swift in Sources */,

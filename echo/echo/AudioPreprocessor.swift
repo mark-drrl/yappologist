@@ -2,31 +2,67 @@ import Foundation
 import AVFoundation
 
 enum PreprocessorError: LocalizedError {
-    case unsupportedFormat(String)
     case exportFailed(String)
     case exportCancelled
+    case fileTooLarge
+    case audioTooLong(Double)
 
     var errorDescription: String? {
         switch self {
-        case .unsupportedFormat(let ext):
-            return "Unsupported format: .\(ext). Supported: mp3, wav, flac, aac, aiff, ogg, opus, mp4, mov, webm, m4a, mkv, avi, wmv."
         case .exportFailed(let msg):
             return "Audio export failed: \(msg)"
         case .exportCancelled:
             return "Audio export was cancelled."
+        case .fileTooLarge:
+            return "This file is over the 300 MB upload limit. Try splitting it into shorter parts."
+        case .audioTooLong(let seconds):
+            let hours = seconds / 3600
+            return String(format: "This recording is %.1f hours long. Converted audio would exceed the 300 MB upload limit — split it into parts under 2.5 hours.", hours)
         }
     }
 }
 
-private let directFormats: Set<String> = ["mp3","wav","flac","aac","aiff","ogg","opus","mp4","mov","webm"]
-private let maxBytes: Int = 100 * 1024 * 1024  // 100 MB
+/// Formats the transcription API accepts directly, so no conversion is needed.
+private let directFormats: Set<String> = ["mp3", "wav", "flac"]
+
+/// Server-side upload cap.
+private let maxUploadBytes = 300 * 1024 * 1024
+
+/// 16 kHz, mono, 16-bit PCM. Speech recognition resamples to this internally, so
+/// downsampling costs no accuracy and keeps converted files far smaller.
+private let wavBytesPerSecond = 32_000
+
+/// Tracks cancellation and guarantees the continuation resumes exactly once.
+private final class ExportState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var finished = false
+
+    var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock(); defer { lock.unlock() }
+        cancelled = true
+    }
+
+    /// Returns true for exactly one caller — whoever should resume the continuation.
+    func claimFinish() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if finished { return false }
+        finished = true
+        return true
+    }
+}
 
 actor AudioPreprocessor {
     static let shared = AudioPreprocessor()
 
-    /// Returns the URL to upload (either the original or an exported .m4a).
-    /// `progressHandler` reports 0...1 during conversion; files that upload directly
-    /// jump straight to 1.
+    /// Returns the URL to upload — either the original file, or a converted WAV.
+    /// `progressHandler` reports 0...1 during conversion; files that upload
+    /// directly jump straight to 1.
     func prepare(url: URL,
                  progressHandler: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> URL {
         let ext = url.pathExtension.lowercased()
@@ -36,62 +72,117 @@ actor AudioPreprocessor {
             throw PreprocessorError.exportFailed("File is empty.")
         }
 
-        let needsConversion = !directFormats.contains(ext) || size > maxBytes
-
-        if needsConversion {
-            return try await exportAudio(from: url, progressHandler: progressHandler)
+        if directFormats.contains(ext) {
+            // Re-encoding an already-compressed file would only make it bigger,
+            // so an oversized mp3 has to be split rather than converted.
+            guard size <= maxUploadBytes else { throw PreprocessorError.fileTooLarge }
+            progressHandler(1)
+            return url
         }
-        progressHandler(1)
-        return url
+
+        return try await exportWAV(from: url, progressHandler: progressHandler)
     }
 
-    private func exportAudio(from url: URL,
-                             progressHandler: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    private func exportWAV(from url: URL,
+                           progressHandler: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let asset = AVURLAsset(url: url)
 
-        // Check asset is loadable
         let duration = try await asset.load(.duration)
-        guard duration.seconds > 0 else {
+        let totalSeconds = duration.seconds
+        guard totalSeconds.isFinite, totalSeconds > 0 else {
             throw PreprocessorError.exportFailed("Could not read media duration.")
         }
 
-        let tmpURL = FileManager.default.temporaryDirectory
+        guard Int(totalSeconds * Double(wavBytesPerSecond)) <= maxUploadBytes else {
+            throw PreprocessorError.audioTooLong(totalSeconds)
+        }
+
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+            throw PreprocessorError.exportFailed("This file has no audio track.")
+        }
+
+        let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("m4a")
+            .appendingPathExtension("wav")
 
-        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw PreprocessorError.exportFailed("Could not create export session.")
-        }
-        session.outputURL = tmpURL
-        session.outputFileType = .m4a
-        session.audioTimePitchAlgorithm = .spectral
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
 
-        // AVAssetExportSession has no progress callback, so poll it while the export runs.
-        let poller = Task {
-            while !Task.isCancelled {
-                progressHandler(Double(session.progress))
-                try? await Task.sleep(nanoseconds: 150_000_000)
-            }
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: settings)
+        guard reader.canAdd(output) else {
+            throw PreprocessorError.exportFailed("Could not read audio from this file.")
         }
-        defer { poller.cancel() }
+        reader.add(output)
+
+        let writer = try AVAssetWriter(outputURL: outURL, fileType: .wav)
+        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+        input.expectsMediaDataInRealTime = false
+        guard writer.canAdd(input) else {
+            throw PreprocessorError.exportFailed("Could not write converted audio.")
+        }
+        writer.add(input)
+
+        guard writer.startWriting(), reader.startReading() else {
+            let message = writer.error?.localizedDescription
+                ?? reader.error?.localizedDescription
+                ?? "Could not start conversion."
+            throw PreprocessorError.exportFailed(message)
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        let state = ExportState()
 
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                session.exportAsynchronously {
-                    switch session.status {
-                    case .completed:
-                        progressHandler(1)
-                        continuation.resume(returning: tmpURL)
-                    case .cancelled:
-                        continuation.resume(throwing: PreprocessorError.exportCancelled)
-                    default:
-                        let msg = session.error?.localizedDescription ?? "Unknown export error"
-                        continuation.resume(throwing: PreprocessorError.exportFailed(msg))
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let queue = DispatchQueue(label: "com.echo.wav-export")
+                input.requestMediaDataWhenReady(on: queue) {
+                    while input.isReadyForMoreMediaData {
+                        if state.isCancelled {
+                            reader.cancelReading()
+                            input.markAsFinished()
+                            writer.cancelWriting()
+                            if state.claimFinish() {
+                                continuation.resume(throwing: PreprocessorError.exportCancelled)
+                            }
+                            return
+                        }
+
+                        guard let buffer = output.copyNextSampleBuffer() else {
+                            input.markAsFinished()
+                            writer.finishWriting {
+                                guard state.claimFinish() else { return }
+                                if writer.status == .completed {
+                                    progressHandler(1)
+                                    continuation.resume(returning: outURL)
+                                } else {
+                                    let message = writer.error?.localizedDescription
+                                        ?? reader.error?.localizedDescription
+                                        ?? "Unknown conversion error"
+                                    continuation.resume(throwing: PreprocessorError.exportFailed(message))
+                                }
+                            }
+                            return
+                        }
+
+                        input.append(buffer)
+
+                        let elapsed = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
+                        if elapsed.isFinite {
+                            progressHandler(min(max(elapsed / totalSeconds, 0), 1))
+                        }
                     }
                 }
             }
         } onCancel: {
-            session.cancelExport()
+            state.cancel()
         }
     }
 }

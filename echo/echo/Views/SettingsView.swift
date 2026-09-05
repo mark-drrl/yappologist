@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @State private var apiKey: String = ""
+    @State private var resourceName: String = ""
     @State private var saved = false
     @State private var errorMsg: String?
 
@@ -35,12 +36,16 @@ struct SettingsView: View {
             }
 
             Section {
-                SecureField("Paste your Modulate API key", text: $apiKey)
+                TextField("Azure resource name", text: $resourceName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 320)
+
+                SecureField("Paste your Azure Speech key", text: $apiKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 320)
 
                 HStack {
-                    EchoButton("Save key", icon: "key") {
+                    EchoButton("Save", icon: "key") {
                         saveKey()
                     }
                     if saved {
@@ -64,10 +69,10 @@ struct SettingsView: View {
                 .foregroundColor(.red)
                 .font(.system(size: 11))
             } header: {
-                Text("Modulate API key")
+                Text("Azure Speech")
                     .font(.system(size: 13, weight: .semibold))
             } footer: {
-                Text("Your key is stored securely in the macOS Keychain and never leaves your device.")
+                Text("The resource name is the first part of your Azure endpoint, e.g. \"my-resource\" from my-resource.cognitiveservices.azure.com. Your key is stored securely in the macOS Keychain and never leaves your device.")
                     .foregroundColor(.secondary)
                     .font(.system(size: 11))
             }
@@ -77,17 +82,24 @@ struct SettingsView: View {
         .frame(width: 420)
         .onAppear {
             apiKey = KeychainHelper.load() ?? ""
+            resourceName = AzureSettings.resourceName
         }
     }
 
     private func saveKey() {
         errorMsg = nil
         let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
+        let trimmedResource = resourceName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             errorMsg = "Key cannot be empty."
             return
         }
+        guard !trimmedResource.isEmpty else {
+            errorMsg = "Resource name cannot be empty."
+            return
+        }
         do {
+            AzureSettings.resourceName = trimmedResource
             try KeychainHelper.save(trimmed)
             withAnimation { saved = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

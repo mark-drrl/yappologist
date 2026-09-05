@@ -3,7 +3,7 @@ import Security
 
 enum KeychainHelper {
     private static let service = "com.echo.transcribe"
-    private static let account = "ModulateAPIKey"
+    private static let account = "AzureSpeechAPIKey"
 
     static func save(_ key: String) throws {
         let data = Data(key.utf8)
@@ -50,5 +50,17 @@ enum KeychainError: LocalizedError {
         switch self {
         case .saveFailed(let s): return "Keychain save failed (OSStatus \(s))."
         }
+    }
+}
+
+/// Non-secret Azure configuration. The key itself lives in the Keychain; the
+/// resource name is just an identifier that forms the endpoint host, so
+/// UserDefaults is the right home for it.
+enum AzureSettings {
+    private static let resourceNameKey = "azureResourceName"
+
+    static var resourceName: String {
+        get { UserDefaults.standard.string(forKey: resourceNameKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: resourceNameKey) }
     }
 }

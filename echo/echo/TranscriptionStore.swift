@@ -195,7 +195,7 @@ final class TranscriptionStore: ObservableObject {
             try Task.checkCancellation()
             self?.setStatus(id, .uploading(0))
 
-            return try await ModulateClient.shared.transcribe(fileURL: prepared) { progress in
+            return try await TranscribeClient.shared.transcribe(fileURL: prepared) { progress in
                 Task { @MainActor in self?.setUploadProgress(id, progress) }
             }
         }
@@ -209,7 +209,7 @@ final class TranscriptionStore: ObservableObject {
             if jobs.count == 1 { selectedJobID = id }
         } catch is CancellationError {
             setStatus(id, .cancelled)
-        } catch ModulateError.cancelled {
+        } catch TranscribeError.cancelled {
             setStatus(id, .cancelled)
         } catch PreprocessorError.exportCancelled {
             setStatus(id, .cancelled)

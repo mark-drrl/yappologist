@@ -37,13 +37,15 @@ STEP 3 — Enter your key
 ────────────────────────────────────────
 On first launch you'll see a welcome screen.
 - Type your name.
+- Type the resource name that was sent to you.
 - Paste the API key that was sent to you separately.
 - Pick a theme (Light, Dark, or Cute 🍎).
 - Click "Get started".
 
-Your key is stored safely in your Mac's Keychain. If macOS asks
-to allow access to the keychain, click "Always Allow" and enter
-your Mac password.
+You need BOTH the resource name and the key — they were sent
+to you together. The key is stored safely in your Mac's Keychain.
+If macOS asks to allow access to the keychain, click "Always
+Allow" and enter your Mac password.
 
 ────────────────────────────────────────
 STEP 4 — Transcribe

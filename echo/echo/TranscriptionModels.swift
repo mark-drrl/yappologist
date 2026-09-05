@@ -1,32 +1,19 @@
 import Foundation
 
-struct TranscriptionResponse: Codable {
+/// A finished transcript, normalized away from any one provider's response shape.
+struct TranscriptionResponse {
     let text: String
     let durationMs: Int
     let utterances: [Utterance]
-    enum CodingKeys: String, CodingKey {
-        case text
-        case durationMs = "duration_ms"
-        case utterances
-    }
 }
 
-struct Utterance: Codable, Identifiable {
-    let id: UUID
+struct Utterance: Identifiable {
+    let id = UUID()
     let text: String
     let startMs: Int
     let durationMs: Int
     let speaker: Int
     let language: String
-    let emotion: String?
-    let accent: String?
-    enum CodingKeys: String, CodingKey {
-        case id = "utterance_uuid"
-        case text
-        case startMs = "start_ms"
-        case durationMs = "duration_ms"
-        case speaker, language, emotion, accent
-    }
 }
 
 /// Groups of consecutive same-speaker utterances

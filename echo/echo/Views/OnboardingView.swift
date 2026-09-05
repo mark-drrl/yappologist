@@ -5,6 +5,7 @@ struct OnboardingView: View {
 
     @State private var name: String = ""
     @State private var apiKey: String = ""
+    @State private var resourceName: String = ""
 
     private var canContinue: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
@@ -49,13 +50,16 @@ struct OnboardingView: View {
                             .font(.system(size: 14))
                     }
 
-                    // API key
-                    field(title: "Modulate API key") {
-                        VStack(alignment: .leading, spacing: 4) {
+                    // Azure Speech credentials
+                    field(title: "Azure Speech") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField("Resource name", text: $resourceName)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 14))
                             SecureField("Paste the key you were given", text: $apiKey)
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 14))
-                            Text("Stored securely in your Mac's Keychain. You can change it later in Settings.")
+                            Text("Both were sent to you separately. The key is stored securely in your Mac's Keychain. You can change them later in Settings.")
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
                         }
@@ -116,8 +120,12 @@ struct OnboardingView: View {
     private func finish() {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
+        let trimmedResource = resourceName.trimmingCharacters(in: .whitespaces)
 
         themeManager.userName = trimmedName
+        if !trimmedResource.isEmpty {
+            AzureSettings.resourceName = trimmedResource
+        }
         if !trimmedKey.isEmpty {
             try? KeychainHelper.save(trimmedKey)
         }
