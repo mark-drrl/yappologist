@@ -142,6 +142,10 @@ struct HistoryView: View {
                     .foregroundColor(.secondary)
                     .help("Estimated at $\(String(format: "%.2f", transcriptionCostPerHour))/hour. Check the Azure portal for actual billing.")
                 Spacer()
+                EchoButton("Export all", icon: "square.and.arrow.down") {
+                    Exporters.exportAll(library.items)
+                }
+                .controlSize(.small)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)

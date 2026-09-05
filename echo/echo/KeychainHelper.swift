@@ -86,3 +86,50 @@ enum AzureSettings {
         set { UserDefaults.standard.set(newValue, forKey: cleanTranscriptKey) }
     }
 }
+
+/// What goes into an exported document.
+enum ExportSettings {
+    private static let timestampsKey = "exportIncludeTimestamps"
+    private static let speakersKey = "exportIncludeSpeakers"
+
+    static var includeTimestamps: Bool {
+        get { UserDefaults.standard.object(forKey: timestampsKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: timestampsKey) }
+    }
+
+    static var includeSpeakerLabels: Bool {
+        get { UserDefaults.standard.object(forKey: speakersKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: speakersKey) }
+    }
+}
+
+/// Replacements applied automatically to every new transcript, so a name the
+/// model always gets wrong only has to be fixed once.
+enum CorrectionSettings {
+    private static let rulesKey = "correctionRules"
+
+    /// One rule per line, written as `wrong => right`.
+    static var rulesText: String {
+        get { UserDefaults.standard.string(forKey: rulesKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: rulesKey) }
+    }
+
+    static var rules: [(wrong: String, right: String)] {
+        rulesText.components(separatedBy: .newlines).compactMap { line in
+            let parts = line.components(separatedBy: "=>")
+            guard parts.count == 2 else { return nil }
+            let wrong = parts[0].trimmingCharacters(in: .whitespaces)
+            let right = parts[1].trimmingCharacters(in: .whitespaces)
+            guard !wrong.isEmpty else { return nil }
+            return (wrong, right)
+        }
+    }
+
+    static func apply(to text: String) -> String {
+        rules.reduce(text) { result, rule in
+            result.replacingOccurrences(of: rule.wrong,
+                                        with: rule.right,
+                                        options: [.caseInsensitive])
+        }
+    }
+}

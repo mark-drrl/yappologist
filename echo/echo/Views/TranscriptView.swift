@@ -17,6 +17,7 @@ struct TranscriptView: View {
 
     @StateObject private var player = AudioPlayerController()
     @State private var searchText = ""
+    @State private var replaceText = ""
     @State private var autoScroll = true
     @FocusState private var searchFocused: Bool
 
@@ -59,8 +60,10 @@ struct TranscriptView: View {
                             SpeakerBlockView(block: block,
                                              isPlaying: block.id == currentBlockID,
                                              canPlay: player.isLoaded,
+                                             speakers: response.speakerStats,
                                              text: { self.textBinding(for: $0) },
-                                             onPlay: { player.play(fromMs: block.startMs) })
+                                             onPlay: { player.play(fromMs: block.startMs) },
+                                             onReassign: { reassign(block, to: $0) })
                             .id(block.id)
                         }
 
@@ -144,6 +147,21 @@ struct TranscriptView: View {
             .background(Color.secondary.opacity(0.1))
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .frame(maxWidth: 240)
+
+            if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+                TextField("Replace with", text: $replaceText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .frame(maxWidth: 160)
+
+                Button("Replace all") { replaceAll() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
 
             Spacer()
 
@@ -263,6 +281,31 @@ struct TranscriptView: View {
         player.play(fromMs: all[target].startMs)
     }
 
+    /// Replaces across every utterance in one binding write, rather than one per
+    /// line, so the library persists a single change.
+    private func replaceAll() {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return }
+
+        var updated = transcript.response.utterances
+        for index in updated.indices {
+            updated[index].text = updated[index].text
+                .replacingOccurrences(of: query, with: replaceText, options: [.caseInsensitive])
+        }
+        transcript.response.utterances = updated
+    }
+
+    /// Diarization gets attribution wrong sometimes; this moves a whole block to
+    /// another speaker. Labels stay "Speaker 1", "Speaker 2" — only the grouping moves.
+    private func reassign(_ block: SpeakerBlock, to speaker: Int) {
+        let ids = Set(block.utterances.map(\.id))
+        var updated = transcript.response.utterances
+        for index in updated.indices where ids.contains(updated[index].id) {
+            updated[index].speaker = speaker
+        }
+        transcript.response.utterances = updated
+    }
+
     /// Writes edits straight back through the library binding, which persists them.
     private func textBinding(for utterance: Utterance) -> Binding<String> {
         Binding(
@@ -281,8 +324,10 @@ struct SpeakerBlockView: View {
     let block: SpeakerBlock
     let isPlaying: Bool
     let canPlay: Bool
+    let speakers: [SpeakerStat]
     let text: (Utterance) -> Binding<String>
     let onPlay: () -> Void
+    let onReassign: (Int) -> Void
 
     private var color: Color {
         speakerColors[(block.displayNumber - 1) % speakerColors.count]
@@ -291,13 +336,35 @@ struct SpeakerBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text("Speaker \(block.displayNumber)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(color)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(color.opacity(0.12))
-                    .clipShape(Capsule())
+                Menu {
+                    ForEach(speakers) { stat in
+                        Button {
+                            onReassign(stat.speaker)
+                        } label: {
+                            if stat.speaker == block.speaker {
+                                Label("Speaker \(stat.displayNumber)", systemImage: "checkmark")
+                            } else {
+                                Text("Speaker \(stat.displayNumber)")
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("New speaker") {
+                        onReassign((speakers.map(\.speaker).max() ?? 0) + 1)
+                    }
+                } label: {
+                    Text("Speaker \(block.displayNumber)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Reassign this block to another speaker")
 
                 Button {
                     onPlay()

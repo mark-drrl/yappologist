@@ -100,6 +100,44 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .font(.system(size: 11))
             }
+
+            Section {
+                TextEditor(text: Binding(
+                    get: { CorrectionSettings.rulesText },
+                    set: { CorrectionSettings.rulesText = $0 }
+                ))
+                .font(.system(size: 12, design: .monospaced))
+                .frame(width: 320, height: 70)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+            } header: {
+                Text("Auto-corrections")
+                    .font(.system(size: 13, weight: .semibold))
+            } footer: {
+                Text("One rule per line, written as wrong => right. Applied to every new transcript, so a name the model always mishears only has to be fixed once.")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+            }
+
+            Section {
+                Toggle("Include timestamps", isOn: Binding(
+                    get: { ExportSettings.includeTimestamps },
+                    set: { ExportSettings.includeTimestamps = $0 }
+                ))
+                Toggle("Include speaker labels", isOn: Binding(
+                    get: { ExportSettings.includeSpeakerLabels },
+                    set: { ExportSettings.includeSpeakerLabels = $0 }
+                ))
+            } header: {
+                Text("Export")
+                    .font(.system(size: 13, weight: .semibold))
+            } footer: {
+                Text("Turn both off for plain prose with no headers.")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+            }
         }
         .formStyle(.grouped)
         .padding(20)

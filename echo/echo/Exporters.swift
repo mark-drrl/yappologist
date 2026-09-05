@@ -88,16 +88,19 @@ enum Exporters {
         for block in response.speakerBlocks {
             let color = palette[(block.displayNumber - 1) % palette.count]
 
-            let headPara = NSMutableParagraphStyle()
-            headPara.paragraphSpacingBefore = 6
-            headPara.paragraphSpacing = 5
-            doc.append(NSAttributedString(
-                string: "Speaker \(block.displayNumber)   ·   \(formatMs(block.startMs))   ·   \(block.language.lowercased())\n",
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                    .foregroundColor: color,
-                    .paragraphStyle: headPara,
-                ]))
+            let header = blockHeader(for: block)
+            if !header.isEmpty {
+                let headPara = NSMutableParagraphStyle()
+                headPara.paragraphSpacingBefore = 6
+                headPara.paragraphSpacing = 5
+                doc.append(NSAttributedString(
+                    string: "\(header)\n",
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: color,
+                        .paragraphStyle: headPara,
+                    ]))
+            }
 
             let bodyPara = NSMutableParagraphStyle()
             bodyPara.lineSpacing = 3.5
@@ -186,9 +189,56 @@ enum Exporters {
         out += "\(formattedToday()) · \(response.speakerCount) speaker(s) · \(response.formattedDuration)\n"
         out += String(repeating: "—", count: 40) + "\n\n"
         out += response.speakerBlocks.map { block in
-            "Speaker \(block.displayNumber) · \(formatMs(block.startMs)) · \(block.language.lowercased())\n\(block.text)"
+            let header = blockHeader(for: block)
+            return header.isEmpty ? block.text : "\(header)\n\(block.text)"
         }.joined(separator: "\n\n")
         return out + "\n"
+    }
+
+    /// Speaker label and timestamp are both optional, so a block can end up as
+    /// plain prose with no header at all.
+    private static func blockHeader(for block: SpeakerBlock) -> String {
+        var parts: [String] = []
+        if ExportSettings.includeSpeakerLabels { parts.append("Speaker \(block.displayNumber)") }
+        if ExportSettings.includeTimestamps { parts.append(formatMs(block.startMs)) }
+        return parts.joined(separator: "   ·   ")
+    }
+
+    // MARK: - Batch export
+
+    /// Writes every transcript as a .txt into a chosen folder, named after its
+    /// source recording.
+    static func exportAll(_ transcripts: [SavedTranscript]) {
+        guard !transcripts.isEmpty else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Export Here"
+        panel.message = "Choose a folder for \(transcripts.count) transcript\(transcripts.count == 1 ? "" : "s")"
+
+        panel.begin { response in
+            guard response == .OK, let directory = panel.url else { return }
+            for transcript in transcripts {
+                let base = (transcript.filename as NSString).deletingPathExtension
+                let url = uniqueURL(in: directory,
+                                    base: base.isEmpty ? "transcript" : base,
+                                    ext: "txt")
+                try? plainText(transcript.response).data(using: .utf8)?.write(to: url)
+            }
+        }
+    }
+
+    /// Avoids clobbering when two recordings share a name.
+    private static func uniqueURL(in directory: URL, base: String, ext: String) -> URL {
+        var candidate = directory.appendingPathComponent("\(base).\(ext)")
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("\(base) \(counter).\(ext)")
+            counter += 1
+        }
+        return candidate
     }
 
     private static func formattedToday() -> String {

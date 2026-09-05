@@ -155,7 +155,7 @@ actor TranscribeClient {
     private func makeResponse(from payload: AzurePayload) -> TranscriptionResponse {
         let utterances = repairShortPhraseLanguages(
             payload.phrases.map { phrase in
-                Utterance(text: phrase.text,
+                Utterance(text: CorrectionSettings.apply(to: phrase.text),
                           startMs: phrase.offsetMilliseconds,
                           durationMs: phrase.durationMilliseconds,
                           speaker: phrase.speaker ?? 0,
@@ -163,7 +163,10 @@ actor TranscribeClient {
             }
         )
 
-        return TranscriptionResponse(text: payload.combinedPhrases.map(\.text).joined(separator: "\n"),
+        let combined = CorrectionSettings.apply(
+            to: payload.combinedPhrases.map(\.text).joined(separator: "\n")
+        )
+        return TranscriptionResponse(text: combined,
                                      durationMs: payload.durationMilliseconds,
                                      utterances: utterances)
     }
