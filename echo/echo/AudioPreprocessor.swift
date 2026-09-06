@@ -157,6 +157,12 @@ actor AudioPreprocessor {
                 let queue = DispatchQueue(label: "com.echo.wav-export")
                 input.requestMediaDataWhenReady(on: queue) {
                     while input.isReadyForMoreMediaData {
+                        // copyNextSampleBuffer returns autoreleased buffers. Without
+                        // a pool per iteration they pile up for the whole loop — on a
+                        // 25 minute recording that is gigabytes, which stalls the
+                        // machine and then gets the app killed.
+                        var stop = false
+                        autoreleasepool {
                         if state.isCancelled {
                             reader.cancelReading()
                             input.markAsFinished()
@@ -164,6 +170,7 @@ actor AudioPreprocessor {
                             if state.claimFinish() {
                                 continuation.resume(throwing: PreprocessorError.exportCancelled)
                             }
+                            stop = true
                             return
                         }
 
@@ -190,6 +197,7 @@ actor AudioPreprocessor {
                                     continuation.resume(throwing: PreprocessorError.exportFailed(message))
                                 }
                             }
+                            stop = true
                             return
                         }
 
@@ -202,6 +210,9 @@ actor AudioPreprocessor {
                                 progressHandler(fraction)
                             }
                         }
+                        }   // autoreleasepool
+
+                        if stop { return }
                     }
                 }
             }
