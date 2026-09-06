@@ -168,15 +168,24 @@ actor AudioPreprocessor {
                         }
 
                         guard let buffer = output.copyNextSampleBuffer() else {
+                            // A failed reader also returns nil here. Without this
+                            // check the writer would finish cleanly on a truncated
+                            // file and we'd transcribe half a recording.
+                            let readerFailed = reader.status == .failed
+                            let readerError = reader.error
+
                             input.markAsFinished()
                             writer.finishWriting {
                                 guard state.claimFinish() else { return }
-                                if writer.status == .completed {
+                                if readerFailed {
+                                    let message = readerError?.localizedDescription
+                                        ?? "Could not read the whole recording."
+                                    continuation.resume(throwing: PreprocessorError.exportFailed(message))
+                                } else if writer.status == .completed {
                                     progressHandler(1)
                                     continuation.resume(returning: outURL)
                                 } else {
                                     let message = writer.error?.localizedDescription
-                                        ?? reader.error?.localizedDescription
                                         ?? "Unknown conversion error"
                                     continuation.resume(throwing: PreprocessorError.exportFailed(message))
                                 }
