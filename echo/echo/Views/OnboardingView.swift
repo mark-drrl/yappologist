@@ -141,7 +141,9 @@ struct OnboardingView: View {
     private func signIn() {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespaces)
-        let trimmedResource = resourceName.trimmingCharacters(in: .whitespaces)
+        // Accepts a pasted endpoint URL as well as a bare name.
+        let trimmedResource = TranscribeClient.normalizedResourceName(resourceName)
+        resourceName = trimmedResource   // show what was actually understood
 
         signInError = nil
         isSigningIn = true

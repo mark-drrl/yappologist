@@ -78,8 +78,31 @@ actor TranscribeClient {
     static let model = "MAI-Transcribe-2"
 
 
+    /// Pulls the resource name out of whatever was pasted.
+    ///
+    /// The Azure portal shows several different endpoint URLs, and the obvious
+    /// move is to paste a whole one in. All of these become
+    /// "my-resource":
+    ///   my-resource
+    ///   my-resource.cognitiveservices.azure.com
+    ///   https://my-resource.services.ai.azure.com/api/projects/something
+    static func normalizedResourceName(_ input: String) -> String {
+        var value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for scheme in ["https://", "http://"] where value.lowercased().hasPrefix(scheme) {
+            value = String(value.dropFirst(scheme.count))
+        }
+        if let slash = value.firstIndex(of: "/") {
+            value = String(value[..<slash])
+        }
+        if let dot = value.firstIndex(of: ".") {
+            value = String(value[..<dot])
+        }
+        return value
+    }
+
     static func endpoint(for resourceName: String) -> URL? {
-        let resource = resourceName.trimmingCharacters(in: .whitespaces)
+        let resource = normalizedResourceName(resourceName)
         guard !resource.isEmpty else { return nil }
         return URL(string: "https://\(resource).cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=\(apiVersion)")
     }
@@ -93,7 +116,7 @@ actor TranscribeClient {
         let key = apiKey.trimmingCharacters(in: .whitespaces)
         guard !key.isEmpty else { throw TranscribeError.missingAPIKey }
 
-        let resource = resourceName.trimmingCharacters(in: .whitespaces)
+        let resource = normalizedResourceName(resourceName)
         guard !resource.isEmpty else { throw TranscribeError.missingResourceName }
         guard let url = endpoint(for: resource) else { throw TranscribeError.missingResourceName }
 

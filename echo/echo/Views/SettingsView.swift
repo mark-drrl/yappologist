@@ -169,7 +169,8 @@ struct SettingsView: View {
     private func saveKey() {
         errorMsg = nil
         let trimmed = apiKey.trimmingCharacters(in: .whitespaces)
-        let trimmedResource = resourceName.trimmingCharacters(in: .whitespaces)
+        // Accepts a pasted endpoint URL as well as a bare name.
+        let trimmedResource = TranscribeClient.normalizedResourceName(resourceName)
         guard !trimmed.isEmpty else {
             errorMsg = "Key cannot be empty."
             return
@@ -178,6 +179,7 @@ struct SettingsView: View {
             errorMsg = "Resource name cannot be empty."
             return
         }
+        resourceName = trimmedResource   // show what was actually understood
 
         isChecking = true
         Task {
