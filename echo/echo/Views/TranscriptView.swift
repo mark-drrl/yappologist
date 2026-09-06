@@ -19,6 +19,7 @@ struct TranscriptView: View {
     @State private var searchText = ""
     @State private var replaceText = ""
     @State private var autoScroll = true
+    @State private var editingID: UUID?
     @FocusState private var searchFocused: Bool
 
     private var response: TranscriptionResponse { transcript.response }
@@ -80,9 +81,11 @@ struct TranscriptView: View {
                                              isPlaying: block.id == playingID,
                                              canPlay: player.isLoaded,
                                              speakers: stats,
+                                             editingID: editingID,
                                              text: { self.textBinding(for: $0, indexByID: indexByID) },
                                              onPlay: { player.play(fromMs: block.startMs) },
-                                             onReassign: { reassign(block, to: $0) })
+                                             onReassign: { reassign(block, to: $0) },
+                                             onBeginEdit: { editingID = $0 })
                             .id(block.id)
                         }
 
@@ -347,9 +350,13 @@ struct SpeakerBlockView: View {
     let isPlaying: Bool
     let canPlay: Bool
     let speakers: [SpeakerStat]
+    let editingID: UUID?
     let text: (Utterance) -> Binding<String>
     let onPlay: () -> Void
     let onReassign: (Int) -> Void
+    let onBeginEdit: (UUID) -> Void
+
+    @FocusState private var isEditing: Bool
 
     private var color: Color {
         speakerColors[(block.displayNumber - 1) % speakerColors.count]
@@ -422,11 +429,29 @@ struct SpeakerBlockView: View {
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundColor(.secondary)
                             .frame(width: 50, alignment: .leading)
-                        TextField("", text: text(utterance), axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 14))
-                            .lineSpacing(4)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // A live TextField per line is far too expensive — a
+                        // 200-phrase transcript spent seconds building them before
+                        // anything appeared. Lines render as text and only become
+                        // editable when clicked.
+                        if utterance.id == editingID {
+                            TextField("", text: text(utterance), axis: .vertical)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 14))
+                                .lineSpacing(4)
+                                .focused($isEditing)
+                                .onAppear { isEditing = true }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Text(text(utterance).wrappedValue)
+                                .font(.system(size: 14))
+                                .lineSpacing(4)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .onTapGesture { onBeginEdit(utterance.id) }
+                        }
                     }
                 }
             }
