@@ -20,6 +20,7 @@ struct TranscriptView: View {
     @State private var replaceText = ""
     @State private var autoScroll = true
     @State private var editingID: UUID?
+    @State private var waveform: [Float] = []
     @FocusState private var searchFocused: Bool
 
     private var response: TranscriptionResponse { transcript.response }
@@ -67,6 +68,18 @@ struct TranscriptView: View {
             statusBar
             Divider()
             toolBar
+            if player.isLoaded {
+                Divider()
+                WaveformScrubber(samples: waveform,
+                                 durationMs: response.durationMs,
+                                 currentMs: player.currentTimeMs,
+                                 accent: themeManager.theme.accent,
+                                 onScrub: { player.seek(toMs: $0) })
+                    .frame(height: 48)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+            }
             if stats.count > 1 {
                 Divider()
                 speakerStatsBar(stats)
@@ -85,7 +98,8 @@ struct TranscriptView: View {
                                              text: { self.textBinding(for: $0, indexByID: indexByID) },
                                              onPlay: { player.play(fromMs: block.startMs) },
                                              onReassign: { reassign(block, to: $0) },
-                                             onBeginEdit: { editingID = $0 })
+                                             onBeginEdit: { editingID = $0 },
+                                             onSeek: { player.play(fromMs: $0) })
                             .id(block.id)
                         }
 
@@ -111,7 +125,13 @@ struct TranscriptView: View {
             exportBar
         }
         .onAppear {
-            if let url = transcript.audioURL { player.load(url) }
+            guard let url = transcript.audioURL else { return }
+            player.load(url)
+            // Reading the audio to draw it takes a moment; the transcript is usable
+            // while the waveform fills in.
+            Task {
+                waveform = await WaveformLoader.samples(for: url)
+            }
         }
         .onDisappear { player.teardown() }
         .background(hiddenShortcuts)
@@ -355,6 +375,7 @@ struct SpeakerBlockView: View {
     let onPlay: () -> Void
     let onReassign: (Int) -> Void
     let onBeginEdit: (UUID) -> Void
+    let onSeek: (Int) -> Void
 
     @FocusState private var isEditing: Bool
 
@@ -447,7 +468,11 @@ struct SpeakerBlockView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
-                                .onTapGesture { onBeginEdit(utterance.id) }
+                                // Double-click edits, single click jumps the audio to
+                                // this line — checking what was said is the common act,
+                                // fixing it the rarer one.
+                                .onTapGesture(count: 2) { onBeginEdit(utterance.id) }
+                                .onTapGesture { onSeek(utterance.startMs) }
                         }
                     }
                 }

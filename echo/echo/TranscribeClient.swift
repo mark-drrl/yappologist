@@ -160,6 +160,28 @@ actor TranscribeClient {
 
     func transcribe(fileURL: URL,
                     progressHandler: @escaping @Sendable (Double) -> Void) async throws -> TranscriptionResponse {
+        do {
+            return try await send(fileURL: fileURL, diarization: true, progressHandler: progressHandler)
+        } catch TranscribeError.httpError(let code, let detail) where (500...599).contains(code) {
+            // Speaker separation runs as a separate Azure service and fails on its
+            // own; when it's the thing that broke, a transcript without speaker
+            // labels beats no transcript. Other 5xx are transient often enough to
+            // be worth one more go.
+            let diarizationBroke = detail.lowercased().contains("diarization")
+            DiagnosticLog.write("HTTP \(code) — retrying once\(diarizationBroke ? " without speaker labels" : "")")
+
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try Task.checkCancellation()
+
+            return try await send(fileURL: fileURL,
+                                  diarization: !diarizationBroke,
+                                  progressHandler: progressHandler)
+        }
+    }
+
+    private func send(fileURL: URL,
+                      diarization: Bool,
+                      progressHandler: @escaping @Sendable (Double) -> Void) async throws -> TranscriptionResponse {
 
         guard let apiKey = KeychainHelper.load(), !apiKey.isEmpty else {
             throw TranscribeError.missingAPIKey
@@ -177,7 +199,7 @@ actor TranscribeClient {
 
         // The body is written to disk and streamed, so a large file never sits in
         // memory and URLSession can report an accurate Content-Length for progress.
-        let bodyURL = try writeMultipartBody(boundary: boundary, fileURL: fileURL)
+        let bodyURL = try writeMultipartBody(boundary: boundary, fileURL: fileURL, diarization: diarization)
         defer { try? FileManager.default.removeItem(at: bodyURL) }
 
         let delegate = UploadProgressDelegate(onProgress: progressHandler)
@@ -298,7 +320,7 @@ actor TranscribeClient {
 
     // MARK: - Multipart
 
-    private func writeMultipartBody(boundary: String, fileURL: URL) throws -> URL {
+    private func writeMultipartBody(boundary: String, fileURL: URL, diarization: Bool) throws -> URL {
         let crlf = "\r\n"
         let fileName = Self.headerSafeFileName(fileURL.lastPathComponent)
         let mime = mimeType(for: fileURL.pathExtension.lowercased())
@@ -330,16 +352,16 @@ actor TranscribeClient {
         try write("--\(boundary)\(crlf)")
         try write("Content-Disposition: form-data; name=\"definition\"\(crlf)")
         try write("Content-Type: application/json\(crlf)\(crlf)")
-        try write("\(definitionJSON())\(crlf)")
+        try write("\(definitionJSON(diarization: diarization))\(crlf)")
 
         try write("--\(boundary)--\(crlf)")
         return bodyURL
     }
 
-    private func definitionJSON() -> String {
+    private func definitionJSON(diarization: Bool) -> String {
         var definition: [String: Any] = [
             "enhancedMode": ["enabled": true, "model": Self.model],
-            "diarization": ["enabled": true],
+            "diarization": ["enabled": diarization],
             "modelOptions": [
                 "timestamps": "segment",
                 "transcribeStyle": AzureSettings.cleanTranscript ? "clean" : "verbatim",

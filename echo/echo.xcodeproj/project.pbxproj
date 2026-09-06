@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		F76432DF20964AA5BA922E16 /* echoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16797F666F104AB68D8F8E1C /* echoApp.swift */; };
+		AA0000000000000000000004 /* Waveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000004 /* Waveform.swift */; };
 		AA0000000000000000000003 /* DiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000003 /* DiagnosticLog.swift */; };
 		AA0000000000000000000001 /* TranscriptLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000001 /* TranscriptLibrary.swift */; };
 		AA0000000000000000000002 /* AudioPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0000000000000000000002 /* AudioPlayerController.swift */; };
@@ -32,6 +33,7 @@
 /* Begin PBXFileReference section */
 		2AEA1DE818624230A54A6B9D /* echo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "The Yappologist.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		16797F666F104AB68D8F8E1C /* echoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = echoApp.swift; sourceTree = "<group>"; };
+		BB0000000000000000000004 /* Waveform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waveform.swift; sourceTree = "<group>"; };
 		BB0000000000000000000003 /* DiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLog.swift; sourceTree = "<group>"; };
 		BB0000000000000000000001 /* TranscriptLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptLibrary.swift; sourceTree = "<group>"; };
 		BB0000000000000000000002 /* AudioPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerController.swift; sourceTree = "<group>"; };
@@ -69,6 +71,7 @@
 			isa = PBXGroup;
 			children = (
 				16797F666F104AB68D8F8E1C /* echoApp.swift */,
+				BB0000000000000000000004 /* Waveform.swift */,
 				BB0000000000000000000003 /* DiagnosticLog.swift */,
 				BB0000000000000000000001 /* TranscriptLibrary.swift */,
 				BB0000000000000000000002 /* AudioPlayerController.swift */,
@@ -187,6 +190,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F76432DF20964AA5BA922E16 /* echoApp.swift in Sources */,
+				AA0000000000000000000004 /* Waveform.swift in Sources */,
 				AA0000000000000000000003 /* DiagnosticLog.swift in Sources */,
 				AA0000000000000000000001 /* TranscriptLibrary.swift in Sources */,
 				AA0000000000000000000002 /* AudioPlayerController.swift in Sources */,
@@ -332,7 +336,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -341,7 +345,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9;
+				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.echo.transcribe;
 				PRODUCT_NAME = "The Yappologist";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -359,7 +363,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -368,7 +372,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9;
+				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.echo.transcribe;
 				PRODUCT_NAME = "The Yappologist";
 				PROVISIONING_PROFILE_SPECIFIER = "";
