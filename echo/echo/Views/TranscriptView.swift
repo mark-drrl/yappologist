@@ -21,6 +21,8 @@ struct TranscriptView: View {
     @State private var autoScroll = true
     @State private var editingID: UUID?
     @State private var waveform: [Float] = []
+    @State private var currentMatch = 0
+    @State private var scrollTarget: UUID?
     @FocusState private var searchFocused: Bool
 
     private var response: TranscriptionResponse { transcript.response }
@@ -30,11 +32,31 @@ struct TranscriptView: View {
         (transcript.filename as NSString).deletingPathExtension
     }
 
-    private var blocks: [SpeakerBlock] {
-        let all = response.speakerBlocks
-        let query = searchText.trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { return all }
-        return all.filter { $0.text.localizedCaseInsensitiveContains(query) }
+    private var query: String {
+        searchText.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Every occurrence, in reading order, so search can step through them the way
+    /// a browser does rather than hiding everything that doesn't match.
+    private func matches(in blocks: [SpeakerBlock]) -> [SearchMatch] {
+        guard !query.isEmpty else { return [] }
+        var found: [SearchMatch] = []
+        for block in blocks {
+            for utterance in block.utterances {
+                var occurrence = 0
+                var searchStart = utterance.text.startIndex
+                while let range = utterance.text.range(of: query,
+                                                       options: .caseInsensitive,
+                                                       range: searchStart..<utterance.text.endIndex) {
+                    found.append(SearchMatch(blockID: block.id,
+                                             utteranceID: utterance.id,
+                                             occurrence: occurrence))
+                    occurrence += 1
+                    searchStart = range.upperBound
+                }
+            }
+        }
+        return found
     }
 
     /// Built once per render so each text field's binding is an O(1) lookup
@@ -59,10 +81,12 @@ struct TranscriptView: View {
         // Every one of these walks all the utterances. Referencing them inside the
         // ForEach re-ran them once per block, which is quadratic — a 200-phrase
         // transcript took long enough to open that it looked hung.
-        let visibleBlocks = blocks
+        let visibleBlocks = response.speakerBlocks
         let stats = response.speakerStats
         let playingID = currentBlockID
         let indexByID = utteranceIndexByID
+        let found = matches(in: visibleBlocks)
+        let current = found.indices.contains(currentMatch) ? found[currentMatch] : nil
 
         return VStack(spacing: 0) {
             statusBar
@@ -95,20 +119,14 @@ struct TranscriptView: View {
                                              canPlay: player.isLoaded,
                                              speakers: stats,
                                              editingID: editingID,
+                                             query: query,
+                                             currentMatch: current,
                                              text: { self.textBinding(for: $0, indexByID: indexByID) },
                                              onPlay: { player.play(fromMs: block.startMs) },
                                              onReassign: { reassign(block, to: $0) },
                                              onBeginEdit: { editingID = $0 },
                                              onSeek: { player.play(fromMs: $0) })
                             .id(block.id)
-                        }
-
-                        if visibleBlocks.isEmpty {
-                            Text("No lines match \"\(searchText)\".")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                                .padding(.top, 40)
-                                .frame(maxWidth: .infinity)
                         }
                     }
                     .padding(20)
@@ -117,6 +135,12 @@ struct TranscriptView: View {
                     guard autoScroll, player.isPlaying, let id = currentBlockID else { return }
                     withAnimation(.easeInOut(duration: 0.25)) {
                         proxy.scrollTo(id, anchor: .center)
+                    }
+                }
+                .onChange(of: scrollTarget) { target in
+                    guard let target else { return }
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(target, anchor: .center)
                     }
                 }
             }
@@ -173,6 +197,7 @@ struct TranscriptView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .focused($searchFocused)
+                    .onChange(of: searchText) { _ in currentMatch = 0 }
                 if !searchText.isEmpty {
                     Button {
                         searchText = ""
@@ -190,7 +215,27 @@ struct TranscriptView: View {
             .clipShape(RoundedRectangle(cornerRadius: 7))
             .frame(maxWidth: 240)
 
-            if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            if !query.isEmpty {
+                let total = matches(in: response.speakerBlocks).count
+                Text(total == 0 ? "no matches" : "\(min(currentMatch + 1, total)) of \(total)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize()
+
+                Button { step(match: -1) } label: {
+                    Image(systemName: "chevron.up").font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .disabled(total == 0)
+                .help("Previous match (⇧⌘G)")
+
+                Button { step(match: 1) } label: {
+                    Image(systemName: "chevron.down").font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .disabled(total == 0)
+                .help("Next match (⌘G)")
+
                 TextField("Replace with", text: $replaceText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
@@ -307,12 +352,25 @@ struct TranscriptView: View {
                 .keyboardShortcut(.rightArrow, modifiers: .command)
             Button("") { step(by: -1) }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
+            Button("") { step(match: 1) }
+                .keyboardShortcut("g", modifiers: .command)
+            Button("") { step(match: -1) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
         }
         .opacity(0)
         .frame(width: 0, height: 0)
     }
 
     // MARK: - Behaviour
+
+    /// Moves to the next or previous occurrence and scrolls it into view, wrapping
+    /// at both ends the way find-in-page does.
+    private func step(match offset: Int) {
+        let found = matches(in: response.speakerBlocks)
+        guard !found.isEmpty else { return }
+        currentMatch = ((currentMatch + offset) % found.count + found.count) % found.count
+        scrollTarget = found[currentMatch].blockID
+    }
 
     /// Jumps playback to the next or previous speaker block.
     private func step(by offset: Int) {
@@ -365,12 +423,22 @@ struct TranscriptView: View {
     }
 }
 
+/// One occurrence of the search term, identified well enough to highlight the
+/// specific instance the user is standing on.
+struct SearchMatch: Equatable {
+    let blockID: UUID
+    let utteranceID: UUID
+    let occurrence: Int
+}
+
 struct SpeakerBlockView: View {
     let block: SpeakerBlock
     let isPlaying: Bool
     let canPlay: Bool
     let speakers: [SpeakerStat]
     let editingID: UUID?
+    let query: String
+    let currentMatch: SearchMatch?
     let text: (Utterance) -> Binding<String>
     let onPlay: () -> Void
     let onReassign: (Int) -> Void
@@ -381,6 +449,26 @@ struct SpeakerBlockView: View {
 
     private var color: Color {
         speakerColors[(block.displayNumber - 1) % speakerColors.count]
+    }
+
+    /// Marks every occurrence, with the one currently selected shown more strongly —
+    /// the same distinction a browser's find bar makes.
+    private func highlighted(_ text: String, utteranceID: UUID) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard !query.isEmpty else { return attributed }
+
+        var searchStart = attributed.startIndex
+        var occurrence = 0
+        while searchStart < attributed.endIndex,
+              let range = attributed[searchStart...].range(of: query, options: .caseInsensitive) {
+            let isCurrent = currentMatch?.utteranceID == utteranceID
+                && currentMatch?.occurrence == occurrence
+            attributed[range].backgroundColor = isCurrent ? .orange : .yellow.opacity(0.45)
+            if isCurrent { attributed[range].foregroundColor = .black }
+            occurrence += 1
+            searchStart = range.upperBound
+        }
+        return attributed
     }
 
     var body: some View {
@@ -461,7 +549,7 @@ struct SpeakerBlockView: View {
                                 .onAppear { isEditing = true }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
-                            Text(text(utterance).wrappedValue)
+                            Text(highlighted(text(utterance).wrappedValue, utteranceID: utterance.id))
                                 .font(.system(size: 14))
                                 .lineSpacing(4)
                                 .textSelection(.enabled)
