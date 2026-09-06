@@ -35,6 +35,17 @@ struct TranscriptView: View {
         return all.filter { $0.text.localizedCaseInsensitiveContains(query) }
     }
 
+    /// Built once per render so each text field's binding is an O(1) lookup
+    /// rather than a linear scan of every utterance.
+    private var utteranceIndexByID: [UUID: Int] {
+        var map: [UUID: Int] = [:]
+        map.reserveCapacity(transcript.response.utterances.count)
+        for (index, utterance) in transcript.response.utterances.enumerated() {
+            map[utterance.id] = index
+        }
+        return map
+    }
+
     /// The block covering the playhead, used for highlighting and auto-scroll.
     private var currentBlockID: SpeakerBlock.ID? {
         guard player.isLoaded else { return nil }
@@ -43,31 +54,39 @@ struct TranscriptView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        // Every one of these walks all the utterances. Referencing them inside the
+        // ForEach re-ran them once per block, which is quadratic — a 200-phrase
+        // transcript took long enough to open that it looked hung.
+        let visibleBlocks = blocks
+        let stats = response.speakerStats
+        let playingID = currentBlockID
+        let indexByID = utteranceIndexByID
+
+        return VStack(spacing: 0) {
             statusBar
             Divider()
             toolBar
-            if response.speakerCount > 1 {
+            if stats.count > 1 {
                 Divider()
-                speakerStatsBar
+                speakerStatsBar(stats)
             }
             Divider()
 
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 20) {
-                        ForEach(blocks) { block in
+                        ForEach(visibleBlocks) { block in
                             SpeakerBlockView(block: block,
-                                             isPlaying: block.id == currentBlockID,
+                                             isPlaying: block.id == playingID,
                                              canPlay: player.isLoaded,
-                                             speakers: response.speakerStats,
-                                             text: { self.textBinding(for: $0) },
+                                             speakers: stats,
+                                             text: { self.textBinding(for: $0, indexByID: indexByID) },
                                              onPlay: { player.play(fromMs: block.startMs) },
                                              onReassign: { reassign(block, to: $0) })
                             .id(block.id)
                         }
 
-                        if blocks.isEmpty {
+                        if visibleBlocks.isEmpty {
                             Text("No lines match \"\(searchText)\".")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
@@ -205,9 +224,9 @@ struct TranscriptView: View {
         .background(.ultraThinMaterial)
     }
 
-    private var speakerStatsBar: some View {
+    private func speakerStatsBar(_ stats: [SpeakerStat]) -> some View {
         HStack(spacing: 14) {
-            ForEach(response.speakerStats) { stat in
+            ForEach(stats) { stat in
                 HStack(spacing: 5) {
                     Circle()
                         .fill(speakerColors[(stat.displayNumber - 1) % speakerColors.count])
@@ -307,13 +326,16 @@ struct TranscriptView: View {
     }
 
     /// Writes edits straight back through the library binding, which persists them.
-    private func textBinding(for utterance: Utterance) -> Binding<String> {
+    private func textBinding(for utterance: Utterance, indexByID: [UUID: Int]) -> Binding<String> {
         Binding(
             get: {
-                transcript.response.utterances.first { $0.id == utterance.id }?.text ?? utterance.text
+                guard let index = indexByID[utterance.id],
+                      index < transcript.response.utterances.count else { return utterance.text }
+                return transcript.response.utterances[index].text
             },
             set: { newValue in
-                guard let index = transcript.response.utterances.firstIndex(where: { $0.id == utterance.id }) else { return }
+                guard let index = indexByID[utterance.id],
+                      index < transcript.response.utterances.count else { return }
                 transcript.response.utterances[index].text = newValue
             }
         )
