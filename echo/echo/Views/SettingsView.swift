@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var saved = false
     @State private var isChecking = false
     @State private var errorMsg: String?
+    @State private var logText: String = ""
 
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
@@ -144,8 +145,53 @@ struct SettingsView: View {
                 Text("Export")
                     .font(.system(size: 13, weight: .semibold))
             } footer: {
+                Text("Turn both off for plain prose with no headers.")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+            }
+
+            Section {
+                ScrollView {
+                    Text(logText.isEmpty ? "No activity logged yet." : logText)
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                }
+                .frame(width: 320, height: 150)
+                .background(Color.secondary.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+
+                HStack(spacing: 8) {
+                    EchoButton("Refresh", icon: "arrow.clockwise") {
+                        logText = DiagnosticLog.recent()
+                    }
+                    .controlSize(.small)
+                    EchoButton("Copy", icon: "doc.on.doc") {
+                        DiagnosticLog.copyToPasteboard()
+                    }
+                    .controlSize(.small)
+                    EchoButton("Show file", icon: "folder") {
+                        DiagnosticLog.revealInFinder()
+                    }
+                    .controlSize(.small)
+                    Button("Clear", role: .destructive) {
+                        DiagnosticLog.clear()
+                        logText = ""
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.red)
+                    .font(.system(size: 11))
+                }
+            } header: {
+                Text("Activity log")
+                    .font(.system(size: 13, weight: .semibold))
+            } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Turn both off for plain prose with no headers.")
+                    Text("Kept across restarts, so if the app quits unexpectedly the last line shows what it was doing. Press Copy and send it over when something goes wrong.")
                     // So she can say which build she's on when something goes wrong.
                     Text(appVersion)
                         .foregroundColor(.secondary.opacity(0.7))
@@ -161,6 +207,7 @@ struct SettingsView: View {
         .onAppear {
             apiKey = KeychainHelper.load() ?? ""
             resourceName = AzureSettings.resourceName
+            logText = DiagnosticLog.recent()
         }
     }
 

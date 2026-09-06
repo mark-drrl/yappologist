@@ -202,7 +202,9 @@ actor TranscribeClient {
         }
 
         guard http.statusCode == 200 else {
-            throw TranscribeError.httpError(http.statusCode, Self.explanation(from: data))
+            let detail = Self.explanation(from: data)
+            DiagnosticLog.write("HTTP \(http.statusCode) from Azure · \(detail)")
+            throw TranscribeError.httpError(http.statusCode, detail)
         }
 
         do {

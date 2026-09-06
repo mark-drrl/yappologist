@@ -238,24 +238,38 @@ final class TranscriptionStore: ObservableObject {
 
         setStatus(id, .preparing(0))
 
+        let sourceBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        DiagnosticLog.write("job start · \(filename) · \(DiagnosticLog.mb(sourceBytes))")
+
         // Task inherits the main actor here; the actual work hops to the preprocessor
         // and networking actors, so nothing heavy runs on the main thread.
         let work = Task { [weak self] () -> TranscriptionResponse in
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
+            let convertStart = Date()
             let prepared = try await AudioPreprocessor.shared.prepare(url: url) { progress in
                 Task { @MainActor in self?.setPrepareProgress(id, progress) }
             }
             let isTemporary = prepared != url
             defer { if isTemporary { try? FileManager.default.removeItem(at: prepared) } }
 
+            let uploadBytes = (try? prepared.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            if isTemporary {
+                DiagnosticLog.write("converted in \(DiagnosticLog.seconds(since: convertStart)) · \(DiagnosticLog.mb(uploadBytes)) to upload")
+            } else {
+                DiagnosticLog.write("no conversion needed · \(DiagnosticLog.mb(uploadBytes)) to upload")
+            }
+
             try Task.checkCancellation()
             self?.setStatus(id, .uploading(0))
 
-            return try await TranscribeClient.shared.transcribe(fileURL: prepared) { progress in
+            let uploadStart = Date()
+            let response = try await TranscribeClient.shared.transcribe(fileURL: prepared) { progress in
                 Task { @MainActor in self?.setUploadProgress(id, progress) }
             }
+            DiagnosticLog.write("transcribed in \(DiagnosticLog.seconds(since: uploadStart)) · \(response.utterances.count) phrases · \(response.speakerCount) speakers")
+            return response
         }
         activeWork = work
 
@@ -265,6 +279,7 @@ final class TranscriptionStore: ObservableObject {
                                                      audioURL: url,
                                                      response: response)
             setStatus(id, .done(saved.id))
+            DiagnosticLog.write("saved · \(filename)")
             JobNotifier.finished(filename: filename, succeeded: true)
             // Open it automatically only for a lone file, matching the old
             // single-file flow. During a batch this would yank the user off the
@@ -272,12 +287,16 @@ final class TranscriptionStore: ObservableObject {
             if jobs.count == 1 { openTranscriptID = saved.id }
         } catch is CancellationError {
             setStatus(id, .cancelled)
+            DiagnosticLog.write("cancelled · \(filename)")
         } catch TranscribeError.cancelled {
             setStatus(id, .cancelled)
+            DiagnosticLog.write("cancelled · \(filename)")
         } catch PreprocessorError.exportCancelled {
             setStatus(id, .cancelled)
+            DiagnosticLog.write("cancelled during conversion · \(filename)")
         } catch {
             setStatus(id, .failed(error.localizedDescription))
+            DiagnosticLog.write("FAILED · \(filename) · \(error.localizedDescription)")
             JobNotifier.finished(filename: filename, succeeded: false)
         }
     }

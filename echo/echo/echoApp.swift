@@ -6,6 +6,8 @@ struct echoApp: App {
     @StateObject private var themeManager = ThemeManager()
     @StateObject private var library = TranscriptLibrary.shared
 
+    init() { DiagnosticLog.startSession() }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
