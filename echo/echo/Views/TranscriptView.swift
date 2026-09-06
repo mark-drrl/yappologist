@@ -365,50 +365,47 @@ struct SpeakerBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Menu {
-                    ForEach(speakers) { stat in
-                        Button {
-                            onReassign(stat.speaker)
-                        } label: {
-                            if stat.speaker == block.speaker {
-                                Label("Speaker \(stat.displayNumber)", systemImage: "checkmark")
-                            } else {
-                                Text("Speaker \(stat.displayNumber)")
+                // A Menu here is an AppKit control per block; with a hundred blocks
+                // the layout pass throws. A context menu builds nothing until it is
+                // actually opened.
+                Text("Speaker \(block.displayNumber)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(color.opacity(0.12))
+                    .clipShape(Capsule())
+                    .help("Right-click to reassign this block to another speaker")
+                    .contextMenu {
+                        ForEach(speakers) { stat in
+                            Button {
+                                onReassign(stat.speaker)
+                            } label: {
+                                if stat.speaker == block.speaker {
+                                    Label("Speaker \(stat.displayNumber)", systemImage: "checkmark")
+                                } else {
+                                    Text("Speaker \(stat.displayNumber)")
+                                }
                             }
                         }
-                    }
-                    Divider()
-                    Button("New speaker") {
-                        onReassign((speakers.map(\.speaker).max() ?? 0) + 1)
-                    }
-                } label: {
-                    Text("Speaker \(block.displayNumber)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(color)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(color.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Reassign this block to another speaker")
-
-                Button {
-                    onPlay()
-                } label: {
-                    HStack(spacing: 3) {
-                        if canPlay {
-                            Image(systemName: "play.fill").font(.system(size: 8))
+                        Divider()
+                        Button("New speaker") {
+                            onReassign((speakers.map(\.speaker).max() ?? 0) + 1)
                         }
-                        Text(formatMs(block.startMs))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
                     }
-                    .foregroundColor(.secondary)
+
+                // Likewise a tap gesture rather than a Button — one fewer AppKit
+                // control for every block on screen.
+                HStack(spacing: 3) {
+                    if canPlay {
+                        Image(systemName: "play.fill").font(.system(size: 8))
+                    }
+                    Text(formatMs(block.startMs))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                 }
-                .buttonStyle(.plain)
-                .disabled(!canPlay)
+                .foregroundColor(.secondary)
+                .contentShape(Rectangle())
+                .onTapGesture { if canPlay { onPlay() } }
                 .help(canPlay ? "Play from here" : "")
 
                 if !block.language.isEmpty {
