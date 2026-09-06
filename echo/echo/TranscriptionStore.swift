@@ -248,15 +248,20 @@ final class TranscriptionStore: ObservableObject {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
             let convertStart = Date()
-            let prepared = try await AudioPreprocessor.shared.prepare(url: url) { progress in
+            let segments = try await AudioPreprocessor.shared.prepare(url: url) { progress in
                 Task { @MainActor in self?.setPrepareProgress(id, progress) }
             }
-            let isTemporary = prepared != url
-            defer { if isTemporary { try? FileManager.default.removeItem(at: prepared) } }
+            defer {
+                for segment in segments where segment.isTemporary {
+                    try? FileManager.default.removeItem(at: segment.url)
+                }
+            }
 
-            let uploadBytes = (try? prepared.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            if isTemporary {
-                DiagnosticLog.write("converted in \(DiagnosticLog.seconds(since: convertStart)) · \(DiagnosticLog.mb(uploadBytes)) to upload")
+            let uploadBytes = segments.reduce(0) {
+                $0 + ((try? $1.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            }
+            if segments.contains(where: \.isTemporary) {
+                DiagnosticLog.write("converted in \(DiagnosticLog.seconds(since: convertStart)) · \(segments.count) part\(segments.count == 1 ? "" : "s") · \(DiagnosticLog.mb(uploadBytes)) to upload")
             } else {
                 DiagnosticLog.write("no conversion needed · \(DiagnosticLog.mb(uploadBytes)) to upload")
             }
@@ -265,9 +270,36 @@ final class TranscriptionStore: ObservableObject {
             self?.setStatus(id, .uploading(0))
 
             let uploadStart = Date()
-            let response = try await TranscribeClient.shared.transcribe(fileURL: prepared) { progress in
-                Task { @MainActor in self?.setUploadProgress(id, progress) }
+            var utterances: [Utterance] = []
+            var texts: [String] = []
+            var speakerOffset = 0
+
+            for (index, segment) in segments.enumerated() {
+                try Task.checkCancellation()
+
+                let part = try await TranscribeClient.shared.transcribe(fileURL: segment.url) { progress in
+                    let overall = (Double(index) + progress) / Double(segments.count)
+                    Task { @MainActor in self?.setUploadProgress(id, overall) }
+                }
+
+                // Timestamps come back relative to the segment, and diarization runs
+                // per request — speaker 0 in part two isn't speaker 0 in part one, so
+                // ids are kept distinct rather than silently merged. Blocks can be
+                // reassigned by hand afterwards.
+                utterances += part.utterances.map { utterance in
+                    Utterance(text: utterance.text,
+                              startMs: utterance.startMs + segment.startMs,
+                              durationMs: utterance.durationMs,
+                              speaker: utterance.speaker + speakerOffset,
+                              language: utterance.language)
+                }
+                texts.append(part.text)
+                speakerOffset += (part.utterances.map(\.speaker).max() ?? 0) + 1
             }
+
+            let response = TranscriptionResponse(text: texts.joined(separator: "\n"),
+                                                 durationMs: utterances.last.map { $0.startMs + $0.durationMs } ?? 0,
+                                                 utterances: utterances)
             DiagnosticLog.write("transcribed in \(DiagnosticLog.seconds(since: uploadStart)) · \(response.utterances.count) phrases · \(response.speakerCount) speakers")
             return response
         }

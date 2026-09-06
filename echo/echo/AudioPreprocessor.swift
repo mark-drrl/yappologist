@@ -5,7 +5,6 @@ enum PreprocessorError: LocalizedError {
     case exportFailed(String)
     case exportCancelled
     case fileTooLarge
-    case audioTooLong(Double)
 
     var errorDescription: String? {
         switch self {
@@ -15,11 +14,16 @@ enum PreprocessorError: LocalizedError {
             return "Audio export was cancelled."
         case .fileTooLarge:
             return "This file is over the 300 MB upload limit. Try splitting it into shorter parts."
-        case .audioTooLong(let seconds):
-            let hours = seconds / 3600
-            return String(format: "This recording is %.1f hours long. Converted audio would exceed the 300 MB upload limit — split it into parts under 2.5 hours.", hours)
         }
     }
+}
+
+/// One piece of audio ready to send, with where it sits in the original recording.
+struct PreparedSegment {
+    let url: URL
+    /// Offset into the original recording, so timestamps can be put back together.
+    let startMs: Int
+    let isTemporary: Bool
 }
 
 /// Formats the transcription API accepts directly, so no conversion is needed.
@@ -27,6 +31,11 @@ private let directFormats: Set<String> = ["mp3", "wav", "flac"]
 
 /// Server-side upload cap.
 private let maxUploadBytes = 300 * 1024 * 1024
+
+/// Azure's fast-transcription endpoint fails on long recordings regardless of file
+/// size — measured working at 30 minutes and failing at 35, with a 40 minute FLAC
+/// half the size of a passing WAV still rejected. Twenty minutes leaves margin.
+private let maxSegmentSeconds: Double = 20 * 60
 
 /// 16 kHz, mono, 16-bit PCM. Speech recognition resamples to this internally, so
 /// downsampling costs no accuracy and keeps converted files far smaller.
@@ -72,11 +81,11 @@ private final class ExportState: @unchecked Sendable {
 actor AudioPreprocessor {
     static let shared = AudioPreprocessor()
 
-    /// Returns the URL to upload — either the original file, or a converted WAV.
-    /// `progressHandler` reports 0...1 during conversion; files that upload
-    /// directly jump straight to 1.
+    /// Returns the pieces to upload. Short files in an accepted format pass through
+    /// untouched as a single segment; anything else is converted, and anything long
+    /// is also split.
     func prepare(url: URL,
-                 progressHandler: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> URL {
+                 progressHandler: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> [PreparedSegment] {
         let ext = url.pathExtension.lowercased()
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
 
@@ -84,35 +93,59 @@ actor AudioPreprocessor {
             throw PreprocessorError.exportFailed("File is empty.")
         }
 
-        if directFormats.contains(ext) {
-            // Re-encoding an already-compressed file would only make it bigger,
-            // so an oversized mp3 has to be split rather than converted.
-            guard size <= maxUploadBytes else { throw PreprocessorError.fileTooLarge }
-            progressHandler(1)
-            return url
-        }
-
-        return try await exportWAV(from: url, progressHandler: progressHandler)
-    }
-
-    private func exportWAV(from url: URL,
-                           progressHandler: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let asset = AVURLAsset(url: url)
-
         let duration = try await asset.load(.duration)
         let totalSeconds = duration.seconds
+
+        // Short and already acceptable: send it as it is.
+        if directFormats.contains(ext),
+           size <= maxUploadBytes,
+           totalSeconds.isFinite,
+           totalSeconds <= maxSegmentSeconds {
+            progressHandler(1)
+            return [PreparedSegment(url: url, startMs: 0, isTemporary: false)]
+        }
+
         guard totalSeconds.isFinite, totalSeconds > 0 else {
             throw PreprocessorError.exportFailed("Could not read media duration.")
         }
-
-        guard Int(totalSeconds * Double(wavBytesPerSecond)) <= maxUploadBytes else {
-            throw PreprocessorError.audioTooLong(totalSeconds)
-        }
-
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             throw PreprocessorError.exportFailed("This file has no audio track.")
         }
 
+        let segmentCount = max(Int(ceil(totalSeconds / maxSegmentSeconds)), 1)
+        let segmentSeconds = totalSeconds / Double(segmentCount)
+
+        if segmentCount > 1 {
+            DiagnosticLog.write("splitting \(Int(totalSeconds / 60)) min into \(segmentCount) parts — the endpoint rejects long recordings")
+        }
+
+        var segments: [PreparedSegment] = []
+        for index in 0..<segmentCount {
+            try Task.checkCancellation()
+
+            let start = Double(index) * segmentSeconds
+            let range = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
+                                    duration: CMTime(seconds: segmentSeconds, preferredTimescale: 600))
+
+            let url = try await exportWAV(asset: asset, track: track, range: range) { fraction in
+                // Spread each segment's progress across the whole job.
+                let overall = (Double(index) + fraction) / Double(segmentCount)
+                progressHandler(min(max(overall, 0), 1))
+            }
+            segments.append(PreparedSegment(url: url,
+                                            startMs: Int(start * 1000),
+                                            isTemporary: true))
+        }
+
+        progressHandler(1)
+        return segments
+    }
+
+    private func exportWAV(asset: AVURLAsset,
+                           track: AVAssetTrack,
+                           range: CMTimeRange,
+                           progressHandler: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let outURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
@@ -128,6 +161,7 @@ actor AudioPreprocessor {
         ]
 
         let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = range
         let output = AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: settings)
         guard reader.canAdd(output) else {
             throw PreprocessorError.exportFailed("Could not read audio from this file.")
@@ -151,66 +185,66 @@ actor AudioPreprocessor {
         writer.startSession(atSourceTime: .zero)
 
         let state = ExportState()
+        let rangeStart = range.start.seconds
+        let rangeSeconds = max(range.duration.seconds, 0.001)
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
                 let queue = DispatchQueue(label: "com.echo.wav-export")
                 input.requestMediaDataWhenReady(on: queue) {
                     while input.isReadyForMoreMediaData {
-                        // copyNextSampleBuffer returns autoreleased buffers. Without
-                        // a pool per iteration they pile up for the whole loop — on a
-                        // 25 minute recording that is gigabytes, which stalls the
-                        // machine and then gets the app killed.
+                        // copyNextSampleBuffer returns autoreleased buffers; without a
+                        // pool per iteration they pile up for the whole loop.
                         var stop = false
                         autoreleasepool {
-                        if state.isCancelled {
-                            reader.cancelReading()
-                            input.markAsFinished()
-                            writer.cancelWriting()
-                            if state.claimFinish() {
-                                continuation.resume(throwing: PreprocessorError.exportCancelled)
+                            if state.isCancelled {
+                                reader.cancelReading()
+                                input.markAsFinished()
+                                writer.cancelWriting()
+                                if state.claimFinish() {
+                                    continuation.resume(throwing: PreprocessorError.exportCancelled)
+                                }
+                                stop = true
+                                return
                             }
-                            stop = true
-                            return
-                        }
 
-                        guard let buffer = output.copyNextSampleBuffer() else {
-                            // A failed reader also returns nil here. Without this
-                            // check the writer would finish cleanly on a truncated
-                            // file and we'd transcribe half a recording.
-                            let readerFailed = reader.status == .failed
-                            let readerError = reader.error
+                            guard let buffer = output.copyNextSampleBuffer() else {
+                                // A failed reader also returns nil here. Without this
+                                // check the writer would finish cleanly on a truncated
+                                // file and we'd transcribe half a recording.
+                                let readerFailed = reader.status == .failed
+                                let readerError = reader.error
 
-                            input.markAsFinished()
-                            writer.finishWriting {
-                                guard state.claimFinish() else { return }
-                                if readerFailed {
-                                    let message = readerError?.localizedDescription
-                                        ?? "Could not read the whole recording."
-                                    continuation.resume(throwing: PreprocessorError.exportFailed(message))
-                                } else if writer.status == .completed {
-                                    progressHandler(1)
-                                    continuation.resume(returning: outURL)
-                                } else {
-                                    let message = writer.error?.localizedDescription
-                                        ?? "Unknown conversion error"
-                                    continuation.resume(throwing: PreprocessorError.exportFailed(message))
+                                input.markAsFinished()
+                                writer.finishWriting {
+                                    guard state.claimFinish() else { return }
+                                    if readerFailed {
+                                        let message = readerError?.localizedDescription
+                                            ?? "Could not read the whole recording."
+                                        continuation.resume(throwing: PreprocessorError.exportFailed(message))
+                                    } else if writer.status == .completed {
+                                        progressHandler(1)
+                                        continuation.resume(returning: outURL)
+                                    } else {
+                                        let message = writer.error?.localizedDescription
+                                            ?? "Unknown conversion error"
+                                        continuation.resume(throwing: PreprocessorError.exportFailed(message))
+                                    }
+                                }
+                                stop = true
+                                return
+                            }
+
+                            input.append(buffer)
+
+                            let elapsed = CMSampleBufferGetPresentationTimeStamp(buffer).seconds - rangeStart
+                            if elapsed.isFinite {
+                                let fraction = min(max(elapsed / rangeSeconds, 0), 1)
+                                if state.shouldReport(fraction) {
+                                    progressHandler(fraction)
                                 }
                             }
-                            stop = true
-                            return
                         }
-
-                        input.append(buffer)
-
-                        let elapsed = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
-                        if elapsed.isFinite {
-                            let fraction = min(max(elapsed / totalSeconds, 0), 1)
-                            if state.shouldReport(fraction) {
-                                progressHandler(fraction)
-                            }
-                        }
-                        }   // autoreleasepool
 
                         if stop { return }
                     }
