@@ -32,11 +32,23 @@ private let maxUploadBytes = 300 * 1024 * 1024
 /// downsampling costs no accuracy and keeps converted files far smaller.
 private let wavBytesPerSecond = 32_000
 
-/// Tracks cancellation and guarantees the continuation resumes exactly once.
+/// Tracks cancellation, throttles progress, and guarantees the continuation
+/// resumes exactly once.
 private final class ExportState: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     private var finished = false
+    private var lastReported: Double = -1
+
+    /// Sample buffers arrive in their thousands per second. Reporting each one
+    /// floods the main actor with view updates and macOS marks the app as not
+    /// responding, so only meaningful movement is published.
+    func shouldReport(_ progress: Double) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard progress >= 1 || progress - lastReported >= 0.01 else { return false }
+        lastReported = progress
+        return true
+    }
 
     var isCancelled: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -176,7 +188,10 @@ actor AudioPreprocessor {
 
                         let elapsed = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
                         if elapsed.isFinite {
-                            progressHandler(min(max(elapsed / totalSeconds, 0), 1))
+                            let fraction = min(max(elapsed / totalSeconds, 0), 1)
+                            if state.shouldReport(fraction) {
+                                progressHandler(fraction)
+                            }
                         }
                     }
                 }

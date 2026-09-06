@@ -36,8 +36,10 @@ final class AudioPlayerController: ObservableObject {
         self.player = player
         self.loadedURL = url
 
+        // Each tick republishes and re-renders the transcript, so 5/sec is plenty
+        // — fine enough for follow-along scrolling, cheap enough not to stutter.
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.05, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             guard let self else { return }

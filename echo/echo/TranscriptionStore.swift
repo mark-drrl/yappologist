@@ -290,10 +290,16 @@ final class TranscriptionStore: ObservableObject {
         savePending()
     }
 
+    /// Every published change re-renders the queue, so sub-percent movement is
+    /// dropped. Publishing each callback verbatim flooded the main actor badly
+    /// enough that macOS marked the app as not responding.
+    private static let progressStep = 0.01
+
     private func setPrepareProgress(_ id: TranscriptionJob.ID, _ progress: Double) {
         guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
-        // Progress callbacks can land out of order, so only ever move forward.
-        if case .preparing(let current) = jobs[index].status, progress > current {
+        // Callbacks can land out of order, so only ever move forward.
+        if case .preparing(let current) = jobs[index].status,
+           progress >= 1 || progress - current >= Self.progressStep {
             jobs[index].status = .preparing(progress)
         }
     }
@@ -306,7 +312,7 @@ final class TranscriptionStore: ObservableObject {
         case .uploading(let current):
             if progress >= 1 {
                 jobs[index].status = .processing
-            } else if progress > current {
+            } else if progress - current >= Self.progressStep {
                 jobs[index].status = .uploading(progress)
             }
         default:
