@@ -29,7 +29,7 @@ struct ContentView: View {
             } else if showHistory {
                 VStack(spacing: 0) {
                     header
-                    HistoryView()
+                    HistoryView(onClose: { showHistory = false })
                 }
             } else if store.jobs.isEmpty {
                 VStack(spacing: 0) {
@@ -64,11 +64,12 @@ struct ContentView: View {
             }
             Spacer()
 
-            // Back to the queue while a transcript is open
+            // Closing a transcript returns to wherever it was opened from —
+            // clearing showHistory here dumped her in the queue instead.
             if store.openTranscriptID != nil {
-                EchoButton("Queue", icon: "list.bullet") {
+                EchoButton(showHistory ? "History" : "Queue",
+                           icon: showHistory ? "clock.arrow.circlepath" : "list.bullet") {
                     store.openTranscriptID = nil
-                    showHistory = false
                 }
                 .controlSize(.small)
             } else if !library.items.isEmpty {
@@ -115,6 +116,8 @@ struct ContentView: View {
 // MARK: - History
 
 struct HistoryView: View {
+    let onClose: () -> Void
+
     @EnvironmentObject var store: TranscriptionStore
     @EnvironmentObject var library: TranscriptLibrary
 
@@ -156,6 +159,10 @@ struct HistoryView: View {
                 Spacer()
                 EchoButton("Export all", icon: "square.and.arrow.down") {
                     Exporters.exportAll(library.items)
+                }
+                .controlSize(.small)
+                EchoButton("Back", icon: "chevron.left") {
+                    onClose()
                 }
                 .controlSize(.small)
             }
